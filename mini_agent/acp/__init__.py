@@ -9,27 +9,9 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from acp import (
-    PROTOCOL_VERSION,
-    AgentSideConnection,
-    CancelNotification,
-    InitializeRequest,
-    InitializeResponse,
-    NewSessionRequest,
-    NewSessionResponse,
-    PromptRequest,
-    PromptResponse,
-    session_notification,
-    start_tool_call,
-    stdio_streams,
-    text_block,
-    tool_content,
-    update_agent_message,
-    update_agent_thought,
-    update_tool_call,
-)
-from pydantic import field_validator
+from acp import PROTOCOL_VERSION, AgentSideConnection, CancelNotification, InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, session_notification, start_tool_call, stdio_streams, text_block, tool_content, update_agent_message, update_agent_thought, update_tool_call
 from acp.schema import AgentCapabilities, Implementation, McpCapabilities
+from pydantic import field_validator
 
 from mini_agent.agent import Agent
 from mini_agent.cli import add_workspace_tools, initialize_base_tools
@@ -42,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 try:
+
     class InitializeRequestPatch(InitializeRequest):
         @field_validator("protocolVersion", mode="before")
         @classmethod

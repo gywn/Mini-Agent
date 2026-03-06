@@ -81,7 +81,7 @@ class ReadTool(Tool):
             "Read file contents from the filesystem. Output always includes line numbers "
             "in format 'LINE_NUMBER|LINE_CONTENT' (1-indexed). Supports reading partial content "
             "by specifying line offset and limit for large files. "
-            "You can call this tool multiple times in parallel to read different files simultaneously."
+            "You can call this tool multiple times in parallel to read different files simultaneously."  # fmt: skip
         )
 
     @property
@@ -172,7 +172,7 @@ class WriteTool(Tool):
         return (
             "Write content to a file. Will overwrite existing files completely. "
             "For existing files, you should read the file first using read_file. "
-            "Prefer editing existing files over creating new ones unless explicitly needed."
+            "Prefer editing existing files over creating new ones unless explicitly needed."  # fmt: skip
         )
 
     @property
@@ -229,7 +229,7 @@ class EditTool(Tool):
         return (
             "Perform exact string replacement in a file. The old_str must match exactly "
             "and appear uniquely in the file, otherwise the operation will fail. "
-            "You must read the file first before editing. Preserve exact indentation from the source."
+            "You must read the file first before editing. Preserve exact indentation from the source."  # fmt: skip
         )
 
     @property

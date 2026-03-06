@@ -46,7 +46,7 @@ class SessionNoteTool(Tool):
         return (
             "Record important information as session notes for future reference. "
             "Use this to record key facts, user preferences, decisions, or context "
-            "that should be recalled later in the agent execution chain. Each note is timestamped."
+            "that should be recalled later in the agent execution chain. Each note is timestamped."  # fmt: skip
         )
 
     @property
@@ -68,12 +68,12 @@ class SessionNoteTool(Tool):
 
     def _load_from_file(self) -> list:
         """Load notes from file.
-        
+
         Returns empty list if file doesn't exist (lazy loading).
         """
         if not self.memory_file.exists():
             return []
-        
+
         try:
             return json.loads(self.memory_file.read_text())
         except Exception:
@@ -81,7 +81,7 @@ class SessionNoteTool(Tool):
 
     def _save_to_file(self, notes: list):
         """Save notes to file.
-        
+
         Creates parent directory and file if they don't exist (lazy initialization).
         """
         # Ensure parent directory exists when actually saving
@@ -145,7 +145,7 @@ class RecallNoteTool(Tool):
         return (
             "Recall all previously recorded session notes. "
             "Use this to retrieve important information, context, or decisions "
-            "from earlier in the session or previous agent execution chains."
+            "from earlier in the session or previous agent execution chains."  # fmt: skip
         )
 
     @property
