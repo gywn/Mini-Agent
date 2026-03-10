@@ -23,7 +23,6 @@ This project comes packed with features designed for a robust and intelligent ag
     - [2. Choose Your Usage Mode](#2-choose-your-usage-mode)
       - [🚀 Quick Start Mode (Recommended for Beginners)](#-quick-start-mode-recommended-for-beginners)
       - [🔧 Development Mode](#-development-mode)
-  - [ACP \& Zed Editor Integration(optional)](#acp--zed-editor-integrationoptional)
   - [Usage Examples](#usage-examples)
     - [Task Execution](#task-execution)
     - [Using a Claude Skill (e.g., PDF Generation)](#using-a-claude-skill-eg-pdf-generation)
@@ -208,34 +207,6 @@ mini-agent --workspace /path/to/your/project
 > 📖 For more development guidance, see [Development Guide](docs/DEVELOPMENT_GUIDE.md)
 
 > 📖 For more production deployment guidance, see [Production Guide](docs/PRODUCTION_GUIDE.md)
-
-## ACP & Zed Editor Integration(optional)
-
-Mini Agent supports the [Agent Communication Protocol (ACP)](https://github.com/modelcontextprotocol/protocol) for integration with code editors like Zed.
-
-**Setup in Zed Editor:**
-
-1. Install Mini Agent in development mode or as a tool
-2. Add to your Zed `settings.json`:
-
-```json
-{
-  "agent_servers": {
-    "mini-agent": {
-      "command": "/path/to/mini-agent-acp"
-    }
-  }
-}
-```
-
-The command path should be:
-- If installed via `uv tool install`: Use the output of `which mini-agent-acp`
-- If in development mode: `./mini_agent/acp/server.py`
-
-**Usage:**
-- Open Zed's agent panel with `Ctrl+Shift+P` → "Agent: Toggle Panel"
-- Select "mini-agent" from the agent dropdown
-- Start conversations with Mini Agent directly in your editor
 
 ## Usage Examples
 
