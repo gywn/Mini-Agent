@@ -536,12 +536,12 @@ async def initialize_base_tools(config: Config, firefox_profile: Path | None = N
             print(f"{Colors.DIM}  MCP timeouts: connect={mcp_config.connect_timeout}s, " f"execute={mcp_config.execute_timeout}s, sse_read={mcp_config.sse_read_timeout}s{Colors.RESET}")
 
             # Use priority search for mcp.json
-            mcp_config_path = Config.find_config_file(config.tools.mcp_config_path)
-            if mcp_config_path:
-                mcp_tools = await load_mcp_tools_async(str(mcp_config_path))
+            mcp_config_paths = Config.find_config_files(config.tools.mcp_config_path)
+            if mcp_config_paths:
+                mcp_tools = await load_mcp_tools_async(str(mcp_config_paths[0]))
                 if mcp_tools:
                     tools.extend(mcp_tools)
-                    print(f"{Colors.GREEN}✅ Loaded {len(mcp_tools)} MCP tools (from: {mcp_config_path}){Colors.RESET}")
+                    print(f"{Colors.GREEN}✅ Loaded {len(mcp_tools)} MCP tools (from: {mcp_config_paths[0]}){Colors.RESET}")
                 else:
                     print(f"{Colors.YELLOW}⚠️  No available MCP tools found{Colors.RESET}")
             else:
@@ -641,38 +641,10 @@ async def run_agent(workspace_dir: Path, task: str | None = None, firefox_profil
     """
     session_start = datetime.now()
 
-    # 1. Load configuration from package directory
-    config_path = Config.get_default_config_path()
-
-    if not config_path.exists():
-        print(f"{Colors.RED}❌ Configuration file not found{Colors.RESET}")
-        print()
-        print(f"{Colors.BRIGHT_CYAN}📦 Configuration Search Path:{Colors.RESET}")
-        print(f"  {Colors.DIM}1) mini_agent/config/config.yaml{Colors.RESET} (development)")
-        print(f"  {Colors.DIM}2) ~/.mini-agent/config/config.yaml{Colors.RESET} (user)")
-        print(f"  {Colors.DIM}3) <package>/config/config.yaml{Colors.RESET} (installed)")
-        print()
-        print(f"{Colors.BRIGHT_YELLOW}🚀 Quick Setup (Recommended):{Colors.RESET}")
-        print(f"  {Colors.BRIGHT_GREEN}curl -fsSL https://raw.githubusercontent.com/MiniMax-AI/Mini-Agent/main/scripts/setup-config.sh | bash{Colors.RESET}")
-        print()
-        print(f"{Colors.DIM}  This will automatically:{Colors.RESET}")
-        print(f"{Colors.DIM}    • Create ~/.mini-agent/config/{Colors.RESET}")
-        print(f"{Colors.DIM}    • Download configuration files{Colors.RESET}")
-        print(f"{Colors.DIM}    • Guide you to add your API Key{Colors.RESET}")
-        print()
-        print(f"{Colors.BRIGHT_YELLOW}📝 Manual Setup:{Colors.RESET}")
-        user_config_dir = Path.home() / ".mini-agent" / "config"
-        example_config = Config.get_package_dir() / "config" / "config-example.yaml"
-        print(f"  {Colors.DIM}mkdir -p {user_config_dir}{Colors.RESET}")
-        print(f"  {Colors.DIM}cp {example_config} {user_config_dir}/config.yaml{Colors.RESET}")
-        print(f"  {Colors.DIM}# Then edit {user_config_dir}/config.yaml to add your API Key{Colors.RESET}")
-        print()
-        return
-
     try:
-        config = Config.from_yaml(config_path)
+        config = Config.load(workspace_dir)
     except FileNotFoundError:
-        print(f"{Colors.RED}❌ Error: Configuration file not found: {config_path}{Colors.RESET}")
+        print(f"{Colors.RED}❌ Error: Configuration file not found{Colors.RESET}")
         return
     except ValueError as e:
         print(f"{Colors.RED}❌ Error: {e}{Colors.RESET}")
@@ -725,8 +697,8 @@ async def run_agent(workspace_dir: Path, task: str | None = None, firefox_profil
     add_workspace_tools(tools, config, workspace_dir)
 
     # 5. Load System Prompt (with priority search)
-    system_prompt_path = Config.find_config_file(config.agent.system_prompt_path)
-    if system_prompt_path and system_prompt_path.exists():
+    system_prompt_paths = Config.find_config_files(config.agent.system_prompt_path)
+    if system_prompt_paths and (system_prompt_path := system_prompt_paths[0]).exists():
         system_prompt = system_prompt_path.read_text(encoding="utf-8")
         print(f"{Colors.GREEN}✅ Loaded system prompt (from: {system_prompt_path}){Colors.RESET}")
     else:
