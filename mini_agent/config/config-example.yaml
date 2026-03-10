@@ -44,7 +44,24 @@ tools:
   enable_file_tools: true  # File read/write/edit tools (ReadTool, WriteTool, EditTool)
   enable_bash: true        # Bash command execution tool
   enable_note: true        # Session note tool (SessionNoteTool)
-  
+
+  # Serper Search Tool (https://serper.dev)
+  # Provides web search capability
+  # Get your API key at: https://serper.dev/dashboard
+  # Set API key here or via SERPER_API_KEY environment variable
+  enable_serper: true      # Set to true to enable search tool
+  serper:
+    # api_key: "YOUR_SERPER_API_KEY"  # Or set via SERPER_API_KEY env var
+    base_url: "https://google.serper.dev"  # API endpoint
+
+  # HTML Tool (fetch_html)
+  # Enables web page content extraction - fetches HTML and extracts readable text
+  # Useful for: reading articles, documentation, or any web content
+  # Note: Does NOT extract images/video, only text content
+  enable_html: true
+  html:
+    max_tokens: 16000      # Maximum length of extracted text in tokens
+
   # Claude Skills
   enable_skills: true      # Enable Skills
   skills_dir: "./skills"   # Skills directory path

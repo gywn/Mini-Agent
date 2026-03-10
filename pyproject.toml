@@ -21,6 +21,8 @@ dependencies = [
     "pipx>=1.8.0",
     "anthropic>=0.39.0",
     "openai>=1.57.4",
+    "html2text>=2024.1.0",
+    "w3lib>=2.1.0",
 ]
 
 [project.scripts]

@@ -46,13 +46,53 @@ class MCPConfig(BaseModel):
     sse_read_timeout: float = 120.0  # SSE read timeout (seconds)
 
 
+class SerperConfig(BaseModel):
+    """Serper search tool configuration"""
+
+    enabled: bool = False  # Enable Serper search tool
+    api_key: str = ""  # Serper API key (or set via SERPER_API_KEY env var)
+    base_url: str = "https://google.serper.dev"
+
+
+class HtmlConfig(BaseModel):
+    """HTML tool configuration"""
+
+    max_tokens: int = 16000  # Maximum length of extracted text in tokens
+
+
 class ToolsConfig(BaseModel):
-    """Tools configuration"""
+    """Tools configuration
+
+    Controls which tools are available to the Agent.
+
+    Tool Categories:
+    1. Workspace-independent tools (initialized in initialize_base_tools):
+       - HtmlTool (fetch_html): Web page text extraction
+       - SerperTool: Web search
+       - Skill tools: Claude Skills functionality
+       - MCP tools: External MCP server tools
+
+    2. Workspace-dependent tools (initialized in add_workspace_tools):
+       - BashTool: Command execution
+       - ReadTool/WriteTool/EditTool: File operations
+       - SessionNoteTool: Persistent memory
+    """
 
     # Basic tools (file operations, bash)
     enable_file_tools: bool = True
     enable_bash: bool = True
     enable_note: bool = True
+
+    # Serper search tool
+    enable_serper: bool = False
+    serper: SerperConfig = Field(default_factory=SerperConfig)
+
+    # HTML tool - Web page text extraction (fetch_html)
+    # When enabled, the Agent can fetch any URL and extract readable text
+    # Useful for reading articles, documentation, or web content
+    # Note: Does not extract images/video, only text content
+    enable_html: bool = False
+    html: HtmlConfig = Field(default_factory=HtmlConfig)
 
     # Skills
     enable_skills: bool = True
@@ -147,10 +187,28 @@ class Config(BaseModel):
             sse_read_timeout=mcp_data.get("sse_read_timeout", 120.0),
         )
 
+        # Parse Serper configuration
+        serper_data = tools_data.get("serper", {})
+        serper_config = SerperConfig(
+            enabled=serper_data.get("enabled", False),
+            api_key=serper_data.get("api_key", ""),
+            base_url=serper_data.get("base_url", "https://google.serper.dev"),
+        )
+
+        # Parse HTML tool configuration
+        html_data = tools_data.get("html", {})
+        html_config = HtmlConfig(
+            max_tokens=html_data.get("max_tokens", 16000),
+        )
+
         tools_config = ToolsConfig(
             enable_file_tools=tools_data.get("enable_file_tools", True),
             enable_bash=tools_data.get("enable_bash", True),
             enable_note=tools_data.get("enable_note", True),
+            enable_serper=tools_data.get("enable_serper", False),
+            serper=serper_config,
+            enable_html=tools_data.get("enable_html", False),
+            html=html_config,
             enable_skills=tools_data.get("enable_skills", True),
             skills_dir=tools_data.get("skills_dir", "./skills"),
             enable_mcp=tools_data.get("enable_mcp", True),
