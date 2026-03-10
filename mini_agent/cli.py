@@ -593,7 +593,10 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
         # Remove placeholder if skills not enabled
         system_prompt = system_prompt.replace("{SKILLS_METADATA}", "")
 
-    # 7. Create Agent
+    # 7. Inject current time information
+    system_prompt = system_prompt.replace("{CURRENT_TIME}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    # 8. Create Agent
     agent = Agent(
         llm_client=llm_client,
         system_prompt=system_prompt,
