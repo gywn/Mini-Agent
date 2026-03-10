@@ -12,6 +12,7 @@ Examples:
 
 import argparse
 import asyncio
+import os
 import platform
 import subprocess
 import sys
@@ -34,8 +35,10 @@ from .schema import LLMProvider
 from .tools.base import Tool
 from .tools.bash_tool import BashKillTool, BashOutputTool, BashTool
 from .tools.file_tools import EditTool, ReadTool, WriteTool
+from .tools.html_tool import HtmlTool
 from .tools.mcp_loader import cleanup_mcp_connections, load_mcp_tools_async, set_mcp_timeout_config
 from .tools.note_tool import SessionNoteTool
+from .tools.serper_tool import SerperTool
 from .tools.skill_tool import create_skill_tools
 from .utils import calculate_display_width
 
@@ -422,7 +425,30 @@ async def initialize_base_tools(config: Config) -> tuple[list[Tool], Any]:
         except Exception as e:
             print(f"{Colors.YELLOW}⚠️  Failed to load MCP tools: {e}{Colors.RESET}")
 
-    print()  # Empty line separator
+    # 5. Serper search tool - provides web search capability
+    if config.tools.enable_serper:
+        try:
+            serper_config = config.tools.serper
+            # Use API key from config or environment variable
+            api_key = serper_config.api_key or os.environ.get("SERPER_API_KEY")
+            if not api_key:
+                print(f"{Colors.YELLOW}⚠️  Serper API key not configured (set via config or SERPER_API_KEY env var){Colors.RESET}")
+            else:
+                serper_tool = SerperTool(
+                    api_key=api_key,
+                    base_url=serper_config.base_url,
+                )
+                tools.append(serper_tool)
+                print(f"{Colors.GREEN}✅ Loaded Serper search tool{Colors.RESET}")
+        except Exception as e:
+            print(f"{Colors.YELLOW}⚠️  Failed to load Serper tool: {e}{Colors.RESET}")
+
+    # 6. HTML fetching tool
+    if config.tools.enable_html:
+        html_config = config.tools.html
+        tools.append(HtmlTool(max_length=html_config.max_length))
+        print(f"{Colors.GREEN}✅ Loaded HTML fetching tool{Colors.RESET}")
+
     return tools, skill_loader
 
 
