@@ -1,14 +1,38 @@
 """Configuration management module
 
 Provides unified configuration loading and management functionality
+with support for overlaying multiple YAML config files.
 """
 
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
+
+
+def deep_merge(base: Any, override: Any) -> Any:
+    """Recursively merge two dictionaries or replace values.
+
+    Used for overlaying multiple YAML config files, where later configs
+    override earlier ones. Nested dictionaries are merged recursively.
+
+    Args:
+        base: The base dictionary to merge into
+        override: The override dictionary - its values take precedence
+
+    Returns:
+        Merged dictionary with override values taking precedence
+    """
+    merged: dict[str, Any] = {}
+    if override is None:
+        return base
+    if not isinstance(base, dict) or not isinstance(override, dict):
+        return override
+    for key in set(base.keys()) | set(override.keys()):
+        merged[key] = deep_merge(base.get(key), override.get(key))
+    return merged
 
 
 class RetryConfig(BaseModel):
@@ -114,19 +138,32 @@ class Config(BaseModel):
     tools: ToolsConfig
 
     @classmethod
-    def load(cls) -> "Config":
-        """Load configuration from the default search path."""
-        config_path = cls.get_default_config_path()
-        if not config_path.exists():
-            raise FileNotFoundError("Configuration file not found. Run scripts/setup-config.sh or place config.yaml in mini_agent/config/.")
-        return cls.from_yaml(config_path)
-
-    @classmethod
-    def from_yaml(cls, config_path: str | Path) -> "Config":
-        """Load configuration from YAML file
+    def load(cls, workspace_dir: Path | None = None) -> "Config":
+        """Load configuration with automatic overlay/merge support.
 
         Args:
-            config_path: Configuration file path
+            workspace_dir: Optional workspace directory to search for workspace-level config
+
+        Raises:
+            FileNotFoundError: If no config file is found in any location
+        """
+        config_paths = cls.find_config_files("config.yaml", workspace_dir)
+        if not config_paths:
+            raise FileNotFoundError("Configuration file not found. Run scripts/setup-config.sh or place config.yaml in mini_agent/config/.")
+        return cls.from_yaml(config_paths)
+
+    @classmethod
+    def from_yaml(cls, config_paths: str | Path | list[Path]) -> "Config":
+        """Load configuration from YAML file(s) with overlay/merge support.
+
+        When multiple config paths are provided, they are merged together
+        with later files taking precedence over earlier ones (deep merge).
+        This allows for base configs to be overridden at user/workspace levels.
+
+        Args:
+            config_paths: Single path or list of paths to YAML config files.
+                          If a list, files are merged with the first path
+                          having lowest priority and last path highest priority.
 
         Returns:
             Config instance
@@ -135,13 +172,13 @@ class Config(BaseModel):
             FileNotFoundError: Configuration file does not exist
             ValueError: Invalid configuration format or missing required fields
         """
-        config_path = Path(config_path)
+        if not isinstance(config_paths, list):
+            config_paths = [Path(config_paths)]
 
-        if not config_path.exists():
-            raise FileNotFoundError(f"Configuration file does not exist: {config_path}")
-
-        with open(config_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        data: dict[str, Any] = {}
+        for config_path in reversed(config_paths):
+            with open(config_path, encoding="utf-8") as f:
+                data = deep_merge(data, yaml.safe_load(f))
 
         if not data:
             raise ValueError("Configuration file is empty")
@@ -239,47 +276,39 @@ class Config(BaseModel):
         return Path(__file__).parent
 
     @classmethod
-    def find_config_file(cls, filename: str) -> Path | None:
+    def find_config_files(cls, filename: str, workspace_dir: Path | None = None) -> list[Path]:
         """Find configuration file with priority order
 
         Search for config file in the following order of priority:
-        1) mini_agent/config/{filename} in current directory (development mode)
+        1) {workspace_dir}/.mini_agent/config/{filename} in the workspace directory
         2) ~/.mini-agent/config/{filename} in user home directory
         3) {package}/mini_agent/config/{filename} in package installation directory
 
         Args:
             filename: Configuration file name (e.g., "config.yaml", "mcp.json", "system_prompt.md")
+            workspace_dir: Optional workspace directory to search for workspace-level config
+                          (e.g., .mini_agent/config/config.yaml in the project)
 
         Returns:
-            Path to found config file, or None if not found
+            List of Paths to found config files in priority order (lowest to highest).
+            Empty list if no config files found.
         """
+        config_paths: list[Path] = []
+
         # Priority 1: Development mode - current directory's config/ subdirectory
-        dev_config = Path.cwd() / "mini_agent" / "config" / filename
-        if dev_config.exists():
-            return dev_config
+        if workspace_dir is not None:
+            workspace_config = workspace_dir / ".mini-agent" / "config" / filename
+            if workspace_config.exists():
+                config_paths.append(workspace_config)
 
         # Priority 2: User config directory
         user_config = Path.home() / ".mini-agent" / "config" / filename
         if user_config.exists():
-            return user_config
+            config_paths.append(user_config)
 
         # Priority 3: Package installation directory's config/ subdirectory
         package_config = cls.get_package_dir() / "config" / filename
         if package_config.exists():
-            return package_config
+            config_paths.append(package_config)
 
-        return None
-
-    @classmethod
-    def get_default_config_path(cls) -> Path:
-        """Get the default config file path with priority search
-
-        Returns:
-            Path to config.yaml (prioritizes: dev config/ > user config/ > package config/)
-        """
-        config_path = cls.find_config_file("config.yaml")
-        if config_path:
-            return config_path
-
-        # Fallback to package config directory for error message purposes
-        return cls.get_package_dir() / "config" / "config.yaml"
+        return config_paths
