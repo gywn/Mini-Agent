@@ -7,7 +7,7 @@ Supports loading skills from SKILL.md files and providing them to Agent
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import yaml
 
@@ -20,8 +20,8 @@ class Skill:
     description: str
     content: str
     license: Optional[str] = None
-    allowed_tools: Optional[List[str]] = None
-    metadata: Optional[Dict[str, str]] = None
+    allowed_tools: Optional[list[str]] = None
+    metadata: Optional[dict[str, str]] = None
     skill_path: Optional[Path] = None
 
     def to_prompt(self) -> str:
@@ -55,7 +55,7 @@ class SkillLoader:
             skills_dir: Skills directory path
         """
         self.skills_dir = Path(skills_dir)
-        self.loaded_skills: Dict[str, Skill] = {}
+        self.loaded_skills: dict[str, Skill] = {}
 
     def load_skill(self, skill_path: Path) -> Optional[Skill]:
         """
@@ -134,21 +134,21 @@ class SkillLoader:
 
         # Pattern 1: Directory-based paths (scripts/, references/, assets/)
         # See https://agentskills.io/specification#optional-directories
-        def replace_dir_path(match):
+        def replace_dir_path(match: re.Match[str]) -> str:
             prefix = match.group(1)  # e.g., "python " or "`"
             rel_path = match.group(2)  # e.g., "scripts/with_server.py"
 
             abs_path = skill_dir / rel_path
             if abs_path.exists():
                 return f"{prefix}{abs_path}"
-            return match.group(0)
+            return match.group(0) or ""
 
         pattern_dirs = r"(python\s+|`)((?:scripts|references|assets)/[^\s`\)]+)"
         content = re.sub(pattern_dirs, replace_dir_path, content)
 
         # Pattern 2: Direct markdown/document references (forms.md, reference.md, etc.)
         # Matches phrases like "see reference.md" or "read forms.md"
-        def replace_doc_path(match):
+        def replace_doc_path(match: re.Match[str]) -> str:
             prefix = match.group(1)  # e.g., "see ", "read "
             filename = match.group(2)  # e.g., "reference.md"
             suffix = match.group(3)  # e.g., punctuation
@@ -157,7 +157,7 @@ class SkillLoader:
             if abs_path.exists():
                 # Add helpful instruction for Agent
                 return f"{prefix}`{abs_path}` (use read_file to access){suffix}"
-            return match.group(0)
+            return match.group(0) or ""
 
         # Match patterns like: "see reference.md" or "read forms.md"
         pattern_docs = r"(see|read|refer to|check)\s+([a-zA-Z0-9_-]+\.(?:md|txt|json|yaml))([.,;\s])"
@@ -168,7 +168,7 @@ class SkillLoader:
         # - [text](./reference/file.md) - relative path with ./
         # - [text](scripts/file.js) - directory-based path
         # Matches patterns like: "Read [`docx-js.md`](docx-js.md)" or "Load [Guide](./reference/guide.md)"
-        def replace_markdown_link(match):
+        def replace_markdown_link(match: re.Match[str]) -> str:
             prefix = match.group(1) if match.group(1) else ""  # e.g., "Read ", "Load ", or empty
             link_text = match.group(2)  # e.g., "`docx-js.md`" or "Guide"
             filepath = match.group(3)  # e.g., "docx-js.md", "./reference/file.md", "scripts/file.js"
@@ -180,7 +180,7 @@ class SkillLoader:
             if abs_path.exists():
                 # Preserve the link text style (with or without backticks)
                 return f"{prefix}[{link_text}](`{abs_path}`) (use read_file to access)"
-            return match.group(0)
+            return match.group(0) or ""
 
         # Match markdown link patterns with optional prefix words
         # Captures: (optional prefix word) [link text] (complete file path including ./)
@@ -189,14 +189,14 @@ class SkillLoader:
 
         return content
 
-    def discover_skills(self) -> List[Skill]:
+    def discover_skills(self) -> list[Skill]:
         """
         Discover and load all skills in the skills directory
 
         Returns:
             List of Skills
         """
-        skills = []
+        skills: list[Skill] = []
 
         if not self.skills_dir.exists():
             print(f"⚠️  Skills directory does not exist: {self.skills_dir}")
@@ -223,7 +223,7 @@ class SkillLoader:
         """
         return self.loaded_skills.get(name)
 
-    def list_skills(self) -> List[str]:
+    def list_skills(self) -> list[str]:
         """
         List all loaded skill names
 

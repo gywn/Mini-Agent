@@ -11,6 +11,7 @@ import tiktoken
 from .llm import LLMClient
 from .logger import AgentLogger
 from .schema import Message
+from .schema.schema import AssistantMessage, SystemMessage, ToolResultMessage, UserMessage
 from .tools.base import Tool, ToolResult
 from .utils import calculate_display_width
 
@@ -73,7 +74,7 @@ class Agent:
         self.system_prompt = system_prompt
 
         # Initialize message history
-        self.messages: list[Message] = [Message(role="system", content=system_prompt)]
+        self.messages: list[Message] = [SystemMessage(content=system_prompt)]
 
         # Initialize logger
         self.logger = AgentLogger()
@@ -83,9 +84,9 @@ class Agent:
         # Flag to skip token check right after summary (avoid consecutive triggers)
         self._skip_next_token_check: bool = False
 
-    def add_user_message(self, content: str):
+    def add_user_message(self, content: str) -> None:
         """Add a user message to history."""
-        self.messages.append(Message(role="user", content=content))
+        self.messages.append(UserMessage(content=content))
 
     def _check_cancelled(self) -> bool:
         """Check if agent execution has been cancelled.
@@ -97,7 +98,7 @@ class Agent:
             return True
         return False
 
-    def _cleanup_incomplete_messages(self):
+    def _cleanup_incomplete_messages(self) -> None:
         """Remove the incomplete assistant message and its partial tool results.
 
         This ensures message consistency after cancellation by removing
@@ -128,56 +129,14 @@ class Agent:
         try:
             # Use cl100k_base encoder (used by GPT-4 and most modern models)
             encoding = tiktoken.get_encoding("cl100k_base")
+            # Metadata overhead per message (approximately 4 tokens)
+            return sum(len(encoding.encode(msg.model_dump_json())) + 4 for msg in self.messages)
         except Exception:
             # Fallback: if tiktoken initialization fails, use simple estimation
-            return self._estimate_tokens_fallback()
+            # Rough estimation: average 2.5 characters = 1 token
+            return int(sum(len(msg.model_dump_json()) / 2.5 for msg in self.messages))
 
-        total_tokens = 0
-
-        for msg in self.messages:
-            # Count text content
-            if isinstance(msg.content, str):
-                total_tokens += len(encoding.encode(msg.content))
-            elif isinstance(msg.content, list):
-                for block in msg.content:
-                    if isinstance(block, dict):
-                        # Convert dict to string for calculation
-                        total_tokens += len(encoding.encode(str(block)))
-
-            # Count thinking
-            if msg.thinking:
-                total_tokens += len(encoding.encode(msg.thinking))
-
-            # Count tool_calls
-            if msg.tool_calls:
-                total_tokens += len(encoding.encode(str(msg.tool_calls)))
-
-            # Metadata overhead per message (approximately 4 tokens)
-            total_tokens += 4
-
-        return total_tokens
-
-    def _estimate_tokens_fallback(self) -> int:
-        """Fallback token estimation method (when tiktoken is unavailable)"""
-        total_chars = 0
-        for msg in self.messages:
-            if isinstance(msg.content, str):
-                total_chars += len(msg.content)
-            elif isinstance(msg.content, list):
-                for block in msg.content:
-                    if isinstance(block, dict):
-                        total_chars += len(str(block))
-
-            if msg.thinking:
-                total_chars += len(msg.thinking)
-
-            if msg.tool_calls:
-                total_chars += len(str(msg.tool_calls))
-
-        # Rough estimation: average 2.5 characters = 1 token
-        return int(total_chars / 2.5)
-
-    async def _summarize_messages(self):
+    async def _summarize_messages(self) -> None:
         """Message history summarization: summarize conversations between user messages when tokens exceed limit
 
         Strategy (Agent mode):
@@ -238,10 +197,7 @@ class Agent:
             if execution_messages:
                 summary_text = await self._create_summary(execution_messages, i + 1)
                 if summary_text:
-                    summary_message = Message(
-                        role="user",
-                        content=f"[Assistant Execution Summary]\n\n{summary_text}",
-                    )
+                    summary_message = UserMessage(content=f"[Assistant Execution Summary]\n\n{summary_text}")
                     new_messages.append(summary_message)
                     summary_count += 1
 
@@ -296,13 +252,10 @@ Requirements:
 4. Use English
 5. Do not include "user" related content, only summarize the Agent's execution process"""
 
-            summary_msg = Message(role="user", content=summary_prompt)
+            summary_msg = UserMessage(content=summary_prompt)
             response = await self.llm.generate(
                 messages=[
-                    Message(
-                        role="system",
-                        content="You are an assistant skilled at summarizing Agent execution processes.",
-                    ),
+                    SystemMessage(content="You are an assistant skilled at summarizing Agent execution processes."),
                     summary_msg,
                 ]
             )
@@ -393,8 +346,7 @@ Requirements:
             )
 
             # Add assistant message
-            assistant_msg = Message(
-                role="assistant",
+            assistant_msg = AssistantMessage(
                 content=response.content,
                 thinking=response.thinking,
                 tool_calls=response.tool_calls,
@@ -485,13 +437,12 @@ Requirements:
                     result_text = result.content
                     if len(result_text) > 300:
                         result_text = result_text[:300] + f"{Colors.DIM}...{Colors.RESET}"
-                    print(f"{Colors.BRIGHT_GREEN}✓ Result:{Colors.RESET} {result_text}")
+                    print(f"{Colors.BRIGHT_GREEN}✓ Result:{Colors.RESET}{"\n" if "\n" in result_text else " "}{result_text}")
                 else:
-                    print(f"{Colors.BRIGHT_RED}✗ Error:{Colors.RESET} {Colors.RED}{result.error}{Colors.RESET}")
+                    print(f"{Colors.BRIGHT_RED}✗ Error:{Colors.RESET}{"\n" if result.error and "\n" in result.error else " "}{Colors.RED}{result.error}{Colors.RESET}")
 
                 # Add tool result message
-                tool_msg = Message(
-                    role="tool",
+                tool_msg = ToolResultMessage(
                     content=result.content if result.success else f"Error: {result.error}",
                     tool_call_id=tool_call_id,
                     name=function_name,

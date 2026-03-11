@@ -1,11 +1,16 @@
 """Agent run logger"""
 
+from __future__ import annotations
+
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .schema import Message, ToolCall
+
+if TYPE_CHECKING:
+    from .tools.base import Tool
 
 
 class AgentLogger:
@@ -16,7 +21,7 @@ class AgentLogger:
     - Tool calls and results
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize logger
 
         Logs are stored in ~/.mini-agent/log/ directory
@@ -24,10 +29,10 @@ class AgentLogger:
         # Use ~/.mini-agent/log/ directory for logs
         self.log_dir = Path.home() / ".mini-agent" / "log"
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.log_file = None
+        self.log_file: Path | None = None
         self.log_index = 0
 
-    def start_new_run(self):
+    def start_new_run(self) -> None:
         """Start new run, create new log file"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_filename = f"agent_run_{timestamp}.log"
@@ -40,7 +45,7 @@ class AgentLogger:
             f.write(f"Agent Run Log - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write("=" * 80 + "\n\n")
 
-    def log_request(self, messages: list[Message], tools: list[Any] | None = None):
+    def log_request(self, messages: list[Message], tools: list[Tool] | None = None) -> None:
         """Log LLM request
 
         Args:
@@ -50,27 +55,10 @@ class AgentLogger:
         self.log_index += 1
 
         # Build complete request data structure
-        request_data = {
-            "messages": [],
+        request_data: dict[str, Any] = {
+            "messages": [msg.model_dump() for msg in messages],
             "tools": [],
         }
-
-        # Convert messages to JSON serializable format
-        for msg in messages:
-            msg_dict = {
-                "role": msg.role,
-                "content": msg.content,
-            }
-            if msg.thinking:
-                msg_dict["thinking"] = msg.thinking
-            if msg.tool_calls:
-                msg_dict["tool_calls"] = [tc.model_dump() for tc in msg.tool_calls]
-            if msg.tool_call_id:
-                msg_dict["tool_call_id"] = msg.tool_call_id
-            if msg.name:
-                msg_dict["name"] = msg.name
-
-            request_data["messages"].append(msg_dict)
 
         # Only record tool names
         if tools:
@@ -88,7 +76,7 @@ class AgentLogger:
         thinking: str | None = None,
         tool_calls: list[ToolCall] | None = None,
         finish_reason: str | None = None,
-    ):
+    ) -> None:
         """Log LLM response
 
         Args:
@@ -100,7 +88,7 @@ class AgentLogger:
         self.log_index += 1
 
         # Build complete response data structure
-        response_data = {
+        response_data: dict[str, Any] = {
             "content": content,
         }
 
@@ -126,7 +114,7 @@ class AgentLogger:
         result_success: bool,
         result_content: str | None = None,
         result_error: str | None = None,
-    ):
+    ) -> None:
         """Log tool execution result
 
         Args:
@@ -156,7 +144,7 @@ class AgentLogger:
 
         self._write_log("TOOL_RESULT", content)
 
-    def _write_log(self, log_type: str, content: str):
+    def _write_log(self, log_type: str, content: str) -> None:
         """Write log entry
 
         Args:
@@ -173,6 +161,6 @@ class AgentLogger:
             f.write("-" * 80 + "\n")
             f.write(content + "\n")
 
-    def get_log_file_path(self) -> Path:
+    def get_log_file_path(self) -> Path | None:
         """Get current log file path"""
         return self.log_file

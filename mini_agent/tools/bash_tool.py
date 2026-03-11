@@ -66,7 +66,7 @@ class BackgroundShell:
         self.status = "running"
         self.exit_code: int | None = None
 
-    def add_output(self, line: str):
+    def add_output(self, line: str) -> None:
         """Add new output line."""
         self.output_lines.append(line)
 
@@ -85,7 +85,7 @@ class BackgroundShell:
 
         return new_lines
 
-    def update_status(self, is_alive: bool, exit_code: int | None = None):
+    def update_status(self, is_alive: bool, exit_code: int | None = None) -> None:
         """Update process status."""
         if not is_alive:
             self.status = "completed" if exit_code == 0 else "failed"
@@ -93,7 +93,7 @@ class BackgroundShell:
         else:
             self.status = "running"
 
-    async def terminate(self):
+    async def terminate(self) -> None:
         """Terminate the background process."""
         if self.process.returncode is None:
             self.process.terminate()
@@ -109,7 +109,7 @@ class BackgroundShellManager:
     """Manager for all background shell processes."""
 
     _shells: dict[str, BackgroundShell] = {}
-    _monitor_tasks: dict[str, asyncio.Task] = {}
+    _monitor_tasks: dict[str, asyncio.Task[Any]] = {}
 
     @classmethod
     def add(cls, shell: BackgroundShell) -> None:
@@ -139,7 +139,7 @@ class BackgroundShellManager:
         if not shell:
             return
 
-        async def monitor():
+        async def monitor() -> None:
             try:
                 process = shell.process
                 # Continuously read output until process ends
@@ -331,6 +331,7 @@ Examples:
                 timeout = 120
 
             # Prepare shell-specific command execution
+            shell_cmd: str | list[str]
             if self.is_windows:
                 # Windows: Use PowerShell with appropriate encoding
                 shell_cmd = ["powershell.exe", "-NoProfile", "-Command", command]
@@ -352,7 +353,7 @@ Examples:
                     )
                 else:
                     process = await asyncio.create_subprocess_shell(
-                        shell_cmd,
+                        str(shell_cmd),
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.STDOUT,
                         cwd=self.workspace_dir,
@@ -389,7 +390,7 @@ Examples:
                     )
                 else:
                     process = await asyncio.create_subprocess_shell(
-                        shell_cmd,
+                        str(shell_cmd),
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                         cwd=self.workspace_dir,
@@ -399,12 +400,12 @@ Examples:
                     stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
                 except asyncio.TimeoutError:
                     process.kill()
-                    error_msg = f"Command timed out after {timeout} seconds"
+                    timeout_error = f"Command timed out after {timeout} seconds"
                     return BashOutputResult(
                         success=False,
-                        error=error_msg,
+                        error=timeout_error,
                         stdout="",
-                        stderr=error_msg,
+                        stderr=timeout_error,
                         exit_code=-1,
                     )
 
@@ -414,7 +415,7 @@ Examples:
 
                 # Create result (content auto-formatted by model_validator)
                 is_success = process.returncode == 0
-                error_msg = None
+                error_msg: str | None = None
                 if not is_success:
                     error_msg = f"Command failed with exit code {process.returncode}"
                     if stderr_text:
