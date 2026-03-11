@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel
 
@@ -26,15 +26,31 @@ class ToolCall(BaseModel):
     function: FunctionCall
 
 
-class Message(BaseModel):
-    """Chat message."""
+class SystemMessage(BaseModel):
+    role: Literal["system"] = "system"
+    content: str
 
-    role: str  # "system", "user", "assistant", "tool"
-    content: str | list[dict[str, Any]]  # Can be string or list of content blocks
-    thinking: str | None = None  # Extended thinking content for assistant messages
-    tool_calls: list[ToolCall] | None = None
-    tool_call_id: str | None = None
-    name: str | None = None  # For tool role
+
+class UserMessage(BaseModel):
+    role: Literal["user"] = "user"
+    content: str
+
+
+class AssistantMessage(BaseModel):
+    role: Literal["assistant"] = "assistant"
+    thinking: str | None
+    content: str | None
+    tool_calls: list[ToolCall] | None
+
+
+class ToolResultMessage(BaseModel):
+    role: Literal["tool"] = "tool"
+    tool_call_id: str
+    content: str
+    name: str
+
+
+Message = Union[SystemMessage, UserMessage, AssistantMessage, ToolResultMessage]
 
 
 class TokenUsage(BaseModel):

@@ -60,6 +60,14 @@ disable = [
     "arguments-differ",  # Allow subclasses to have different parameter signatures
 ]
 
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "mini_agent.skills.*"
+ignore_errors = true
+
 [dependency-groups]
 dev = [
     "pytest-asyncio>=1.2.0",

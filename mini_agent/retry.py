@@ -73,7 +73,7 @@ class RetryExhaustedError(Exception):
 def async_retry(
     config: RetryConfig | None = None,
     on_retry: Callable[[Exception, int], None] | None = None,
-) -> Callable:
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Async function retry decorator
 
     Args:

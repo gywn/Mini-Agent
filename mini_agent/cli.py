@@ -18,7 +18,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -27,17 +27,17 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
-from mini_agent import LLMClient
-from mini_agent.agent import Agent
-from mini_agent.config import Config
-from mini_agent.schema import LLMProvider
-from mini_agent.tools.base import Tool
-from mini_agent.tools.bash_tool import BashKillTool, BashOutputTool, BashTool
-from mini_agent.tools.file_tools import EditTool, ReadTool, WriteTool
-from mini_agent.tools.mcp_loader import cleanup_mcp_connections, load_mcp_tools_async, set_mcp_timeout_config
-from mini_agent.tools.note_tool import SessionNoteTool
-from mini_agent.tools.skill_tool import create_skill_tools
-from mini_agent.utils import calculate_display_width
+from . import LLMClient
+from .agent import Agent
+from .config import Config
+from .schema import LLMProvider
+from .tools.base import Tool
+from .tools.bash_tool import BashKillTool, BashOutputTool, BashTool
+from .tools.file_tools import EditTool, ReadTool, WriteTool
+from .tools.mcp_loader import cleanup_mcp_connections, load_mcp_tools_async, set_mcp_timeout_config
+from .tools.note_tool import SessionNoteTool
+from .tools.skill_tool import create_skill_tools
+from .utils import calculate_display_width
 
 
 # ANSI color codes
@@ -168,7 +168,7 @@ def read_log_file(filename: str) -> None:
         print(f"\n{Colors.RED}❌ Error reading file: {e}{Colors.RESET}\n")
 
 
-def print_banner():
+def print_banner() -> None:
     """Print welcome banner with proper alignment"""
     BOX_WIDTH = 58
     banner_text = f"{Colors.BOLD}🤖 Mini Agent - Multi-turn Interactive Session{Colors.RESET}"
@@ -186,7 +186,7 @@ def print_banner():
     print()
 
 
-def print_help():
+def print_help() -> None:
     """Print help information"""
     help_text = f"""
 {Colors.BOLD}{Colors.BRIGHT_YELLOW}Available Commands:{Colors.RESET}
@@ -218,11 +218,11 @@ def print_help():
     print(help_text)
 
 
-def print_session_info(agent: Agent, workspace_dir: Path, model: str):
+def print_session_info(agent: Agent, workspace_dir: Path, model: str) -> None:
     """Print session information with proper alignment"""
     BOX_WIDTH = 58
 
-    def print_info_line(text: str):
+    def print_info_line(text: str) -> None:
         """Print a single info line with proper padding"""
         # Account for leading space
         text_width = calculate_display_width(text)
@@ -256,7 +256,7 @@ def print_session_info(agent: Agent, workspace_dir: Path, model: str):
     print()
 
 
-def print_stats(agent: Agent, session_start: datetime):
+def print_stats(agent: Agent, session_start: datetime) -> None:
     """Print session statistics"""
     duration = datetime.now() - session_start
     hours, remainder = divmod(int(duration.total_seconds()), 3600)
@@ -300,7 +300,7 @@ Examples:
     parser.add_argument(
         "--workspace",
         "-w",
-        type=str,
+        type=Path,
         default=None,
         help="Workspace directory (default: current directory)",
     )
@@ -333,7 +333,7 @@ Examples:
     return parser.parse_args()
 
 
-async def initialize_base_tools(config: Config):
+async def initialize_base_tools(config: Config) -> tuple[list[Tool], Any]:
     """Initialize base tools (independent of workspace)
 
     These tools are loaded from package configuration and don't depend on workspace.
@@ -346,7 +346,7 @@ async def initialize_base_tools(config: Config):
         Tuple of (list of tools, skill loader if skills enabled)
     """
 
-    tools = []
+    tools: list[Tool] = []
     skill_loader = None
 
     # 1. Bash auxiliary tools (output monitoring and kill)
@@ -426,7 +426,7 @@ async def initialize_base_tools(config: Config):
     return tools, skill_loader
 
 
-def add_workspace_tools(tools: List[Tool], config: Config, workspace_dir: Path):
+def add_workspace_tools(tools: list[Tool], config: Config, workspace_dir: Path) -> None:
     """Add workspace-dependent tools
 
     These tools need to know the workspace directory.
@@ -462,7 +462,7 @@ def add_workspace_tools(tools: List[Tool], config: Config, workspace_dir: Path):
         print(f"{Colors.GREEN}✅ Loaded session note tool{Colors.RESET}")
 
 
-async def _quiet_cleanup():
+async def _quiet_cleanup() -> None:
     """Clean up MCP connections, suppressing noisy asyncgen teardown tracebacks."""
     # Silence the asyncgen finalization noise that anyio/mcp emits when
     # stdio_client's task group is torn down across tasks.  The handler is
@@ -478,7 +478,7 @@ async def _quiet_cleanup():
         pass
 
 
-async def run_agent(workspace_dir: Path, task: str = None):
+async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
     """Run Agent in interactive or non-interactive mode.
 
     Args:
@@ -529,7 +529,7 @@ async def run_agent(workspace_dir: Path, task: str = None):
         return
 
     # 2. Initialize LLM client
-    from mini_agent.retry import RetryConfig as RetryConfigBase
+    from .retry import RetryConfig as RetryConfigBase
 
     # Convert configuration format
     retry_config = RetryConfigBase(
@@ -542,14 +542,14 @@ async def run_agent(workspace_dir: Path, task: str = None):
     )
 
     # Create retry callback function to display retry information in terminal
-    def on_retry(exception: Exception, attempt: int):
+    def on_retry(exception: Exception, attempt: int) -> None:
         """Retry callback function to display retry information"""
         print(f"\n{Colors.BRIGHT_YELLOW}⚠️  LLM call failed (attempt {attempt}): {str(exception)}{Colors.RESET}")
         next_delay = retry_config.calculate_delay(attempt - 1)
         print(f"{Colors.DIM}   Retrying in {next_delay:.1f}s (attempt {attempt + 1})...{Colors.RESET}")
 
     # Convert provider string to LLMProvider enum
-    provider = LLMProvider.ANTHROPIC if config.llm.provider.lower() == "anthropic" else LLMProvider.OPENAI
+    provider = LLMProvider.ANTHROPIC if config.llm.provider == "anthropic" else LLMProvider.OPENAI
 
     llm_client = LLMClient(
         api_key=config.llm.api_key,
@@ -642,25 +642,25 @@ async def run_agent(workspace_dir: Path, task: str = None):
     kb = KeyBindings()
 
     @kb.add("c-u")  # Ctrl+U: Clear current line
-    def _(event):
+    def _(_event: Any) -> None:
         """Clear the current input line"""
-        event.current_buffer.reset()
+        _event.current_buffer.reset()
 
     @kb.add("c-l")  # Ctrl+L: Clear screen (optional bonus)
-    def _(event):
+    def _(_event: Any) -> None:
         """Clear the screen"""
-        event.app.renderer.clear()
+        _event.app.renderer.clear()
 
     @kb.add("c-j")  # Ctrl+J (对应 Ctrl+Enter)
-    def _(event):
+    def _(_event: Any) -> None:
         """Insert a newline"""
-        event.current_buffer.insert_text("\n")
+        _event.current_buffer.insert_text("\n")
 
     # Create prompt session with history and auto-suggest
     # Use FileHistory for persistent history across sessions (stored in user's home directory)
     history_file = Path.home() / ".mini-agent" / ".history"
     history_file.parent.mkdir(parents=True, exist_ok=True)
-    session = PromptSession(
+    session: PromptSession[Any] = PromptSession(
         history=FileHistory(str(history_file)),
         auto_suggest=AutoSuggestFromHistory(),
         completer=command_completer,
@@ -748,15 +748,15 @@ async def run_agent(workspace_dir: Path, task: str = None):
             esc_listener_stop = threading.Event()
             esc_cancelled = [False]  # Mutable container for thread access
 
-            def esc_key_listener():
+            def esc_key_listener() -> None:
                 """Listen for Esc key in a separate thread."""
                 if platform.system() == "Windows":
                     try:
                         import msvcrt
 
                         while not esc_listener_stop.is_set():
-                            if msvcrt.kbhit():
-                                char = msvcrt.getch()
+                            if msvcrt.kbhit():  # type: ignore[attr-defined]
+                                char = msvcrt.getch()  # type: ignore[attr-defined]
                                 if char == b"\x1b":  # Esc
                                     print(f"\n{Colors.BRIGHT_YELLOW}⏹️  Esc pressed, cancelling...{Colors.RESET}")
                                     esc_cancelled[0] = True
@@ -807,7 +807,7 @@ async def run_agent(workspace_dir: Path, task: str = None):
                     await asyncio.sleep(0.1)
 
                 # Get result
-                _ = agent_task.result()
+                result = agent_task.result()
 
             except asyncio.CancelledError:
                 print(f"\n{Colors.BRIGHT_YELLOW}⚠️  Agent execution cancelled{Colors.RESET}")
@@ -832,7 +832,7 @@ async def run_agent(workspace_dir: Path, task: str = None):
     await _quiet_cleanup()
 
 
-def main():
+def main() -> None:
     """Main entry point for CLI"""
     # Parse command line arguments
     args = parse_args()
@@ -848,7 +848,7 @@ def main():
     # Determine workspace directory
     # Expand ~ to user home directory for portability
     if args.workspace:
-        workspace_dir = Path(args.workspace).expanduser().absolute()
+        workspace_dir = args.workspace.expanduser().absolute()
     else:
         # Use current working directory
         workspace_dir = Path.cwd()

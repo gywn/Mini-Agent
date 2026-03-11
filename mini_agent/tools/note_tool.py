@@ -6,12 +6,22 @@ This tool allows the agent to:
 - Maintain context across agent execution chains
 """
 
+from __future__ import annotations
+
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from .base import Tool, ToolResult
+
+
+class Note(TypedDict):
+    """Structure of a note entry."""
+
+    timestamp: str
+    category: str
+    content: str
 
 
 class SessionNoteTool(Tool):
@@ -66,7 +76,7 @@ class SessionNoteTool(Tool):
             "required": ["content"],
         }
 
-    def _load_from_file(self) -> list:
+    def _load_from_file(self) -> list[Note]:
         """Load notes from file.
 
         Returns empty list if file doesn't exist (lazy loading).
@@ -75,11 +85,14 @@ class SessionNoteTool(Tool):
             return []
 
         try:
-            return json.loads(self.memory_file.read_text())
+            data = json.loads(self.memory_file.read_text())
+            if isinstance(data, list):
+                return list(data)
+            return []
         except Exception:
             return []
 
-    def _save_to_file(self, notes: list):
+    def _save_to_file(self, notes: list[Note]) -> None:
         """Save notes to file.
 
         Creates parent directory and file if they don't exist (lazy initialization).
@@ -103,7 +116,7 @@ class SessionNoteTool(Tool):
             notes = self._load_from_file()
 
             # Add new note with timestamp
-            note = {
+            note: Note = {
                 "timestamp": datetime.now().isoformat(),
                 "category": category,
                 "content": content,
@@ -160,7 +173,7 @@ class RecallNoteTool(Tool):
             },
         }
 
-    async def execute(self, category: str = None) -> ToolResult:
+    async def execute(self, category: str | None = None) -> ToolResult:
         """Recall session notes.
 
         Args:

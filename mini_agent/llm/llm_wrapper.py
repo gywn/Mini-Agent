@@ -4,13 +4,20 @@ This module provides a unified interface for different LLM providers
 (Anthropic and OpenAI) through a single LLMClient class.
 """
 
+from __future__ import annotations
+
 import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from ..retry import RetryConfig
 from ..schema import LLMProvider, LLMResponse, Message
 from .anthropic_client import AnthropicClient
 from .base import LLMClientBase
 from .openai_client import OpenAIClient
+
+if TYPE_CHECKING:
+    from ..tools.base import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -101,25 +108,25 @@ class LLMClient:
         logger.info("Initialized LLM client with provider: %s, api_base: %s", provider, full_api_base)
 
     @property
-    def retry_callback(self):
+    def retry_callback(self) -> Callable[[Exception, int], None] | None:
         """Get retry callback."""
         return self._client.retry_callback
 
     @retry_callback.setter
-    def retry_callback(self, value):
+    def retry_callback(self, value: Callable[[Exception, int], None] | None) -> None:
         """Set retry callback."""
-        self._client.retry_callback = value
+        self._client.retry_callback = value  # type: ignore[assignment]
 
     async def generate(
         self,
         messages: list[Message],
-        tools: list | None = None,
+        tools: list[Tool] | None = None,
     ) -> LLMResponse:
         """Generate response from LLM.
 
         Args:
             messages: List of conversation messages
-            tools: Optional list of Tool objects or dicts
+            tools: Optional list of Tool objects
 
         Returns:
             LLMResponse containing the generated content

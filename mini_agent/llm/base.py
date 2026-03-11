@@ -1,10 +1,15 @@
 """Base class for LLM clients."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..retry import RetryConfig
 from ..schema import LLMResponse, Message
+
+if TYPE_CHECKING:
+    from ..tools.base import Tool
 
 
 class LLMClientBase(ABC):
@@ -41,13 +46,13 @@ class LLMClientBase(ABC):
     async def generate(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[Tool] | None = None,
     ) -> LLMResponse:
         """Generate response from LLM.
 
         Args:
             messages: List of conversation messages
-            tools: Optional list of Tool objects or dicts
+            tools: Optional list of Tool objects
 
         Returns:
             LLMResponse containing the generated content, thinking, and tool calls
@@ -58,7 +63,7 @@ class LLMClientBase(ABC):
     def _prepare_request(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[Tool] | None = None,
     ) -> dict[str, Any]:
         """Prepare the request payload for the API.
 

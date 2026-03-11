@@ -31,7 +31,7 @@ class Tool:
         """Tool parameters schema (JSON Schema format)."""
         raise NotImplementedError
 
-    async def execute(self, *args, **kwargs) -> ToolResult:  # type: ignore
+    async def execute(self, *args, **kwargs) -> ToolResult:  # type: ignore[no-untyped-def]
         """Execute the tool with arbitrary arguments."""
         raise NotImplementedError
 

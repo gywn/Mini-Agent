@@ -1,13 +1,19 @@
 """Anthropic LLM client implementation."""
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anthropic
 
 from ..retry import RetryConfig, async_retry
 from ..schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
+from ..schema.schema import AssistantMessage, SystemMessage, ToolResultMessage, UserMessage
 from .base import LLMClientBase
+
+if TYPE_CHECKING:
+    from ..tools.base import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +55,7 @@ class AnthropicClient(LLMClientBase):
         self,
         system_message: str | None,
         api_messages: list[dict[str, Any]],
-        tools: list[Any] | None = None,
+        tools: list[Tool] | None = None,
     ) -> anthropic.types.Message:
         """Execute API request (core method that can be retried).
 
@@ -77,10 +83,10 @@ class AnthropicClient(LLMClientBase):
             params["tools"] = self._convert_tools(tools)
 
         # Use Anthropic SDK's async messages.create
-        response = await self.client.messages.create(**params)
-        return response
+        response = await self.client.messages.create(**params)  # type: ignore[call-overload]
+        return response  # type: ignore[no-any-return]
 
-    def _convert_tools(self, tools: list[Any]) -> list[dict[str, Any]]:
+    def _convert_tools(self, tools: list[Tool]) -> list[dict[str, Any]]:
         """Convert tools to Anthropic format.
 
         Anthropic tool format:
@@ -95,16 +101,14 @@ class AnthropicClient(LLMClientBase):
         }
 
         Args:
-            tools: List of Tool objects or dicts
+            tools: List of Tool objects
 
         Returns:
             List of tools in Anthropic dict format
         """
-        result = []
+        result: list[dict[str, Any]] = []
         for tool in tools:
-            if isinstance(tool, dict):
-                result.append(tool)
-            elif hasattr(tool, "to_schema"):
+            if hasattr(tool, "to_schema"):
                 # Tool object with to_schema method
                 result.append(tool.to_schema())
             else:
@@ -120,58 +124,60 @@ class AnthropicClient(LLMClientBase):
         Returns:
             Tuple of (system_message, api_messages)
         """
-        system_message = None
-        api_messages = []
+        system_message: str | None = None
+        api_messages: list[dict[str, Any]] = []
 
         for msg in messages:
-            if msg.role == "system":
+            # For system prompt
+            if isinstance(msg, SystemMessage):
+                # Handle system message - could be string or list of content blocks
                 system_message = msg.content
                 continue
 
-            # For user and assistant messages
-            if msg.role in ["user", "assistant"]:
-                # Handle assistant messages with thinking or tool calls
-                if msg.role == "assistant" and (msg.thinking or msg.tool_calls):
-                    # Build content blocks for assistant with thinking and/or tool calls
-                    content_blocks = []
+            # For user messages
+            elif isinstance(msg, UserMessage):
+                api_messages.append({"role": "user", "content": msg.content})
 
-                    # Add thinking block if present
-                    if msg.thinking:
-                        content_blocks.append({"type": "thinking", "thinking": msg.thinking})
+            # For assistant messages
+            elif isinstance(msg, AssistantMessage):
+                content_blocks: list[dict[str, Any]] = []
 
-                    # Add text content if present
-                    if msg.content:
-                        content_blocks.append({"type": "text", "text": msg.content})
+                # Add thinking block if present
+                if msg.thinking:
+                    content_blocks.append({"type": "thinking", "thinking": msg.thinking})
 
-                    # Add tool use blocks
-                    if msg.tool_calls:
-                        for tool_call in msg.tool_calls:
-                            content_blocks.append(
-                                {
-                                    "type": "tool_use",
-                                    "id": tool_call.id,
-                                    "name": tool_call.function.name,
-                                    "input": tool_call.function.arguments,
-                                }
-                            )
+                # Add text content if present
+                if msg.content:
+                    content_blocks.append({"type": "text", "text": msg.content})
 
-                    api_messages.append({"role": "assistant", "content": content_blocks})
-                else:
-                    api_messages.append({"role": msg.role, "content": msg.content})
+                # Add tool use blocks
+                if msg.tool_calls:
+                    for tool_call in msg.tool_calls:
+                        content_blocks.append(
+                            {
+                                "type": "tool_use",
+                                "id": tool_call.id,
+                                "name": tool_call.function.name,
+                                "input": tool_call.function.arguments,
+                            }
+                        )
+
+                api_messages.append({"role": "assistant", "content": content_blocks})
 
             # For tool result messages
-            elif msg.role == "tool":
+            elif isinstance(msg, ToolResultMessage):
                 # Anthropic uses user role with tool_result content blocks
+                tool_result_content: list[dict[str, Any]] = [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": msg.tool_call_id,
+                        "content": msg.content,
+                    }
+                ]
                 api_messages.append(
                     {
                         "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": msg.tool_call_id,
-                                "content": msg.content,
-                            }
-                        ],
+                        "content": tool_result_content,
                     }
                 )
 
@@ -180,7 +186,7 @@ class AnthropicClient(LLMClientBase):
     def _prepare_request(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[Tool] | None = None,
     ) -> dict[str, Any]:
         """Prepare the request for Anthropic API.
 
@@ -257,7 +263,7 @@ class AnthropicClient(LLMClientBase):
     async def generate(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[Tool] | None = None,
     ) -> LLMResponse:
         """Generate response from Anthropic LLM.
 

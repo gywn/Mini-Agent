@@ -4,6 +4,7 @@ Provides unified configuration loading and management functionality
 """
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -25,7 +26,7 @@ class LLMConfig(BaseModel):
     api_key: str
     api_base: str = "https://api.minimax.io"
     model: str = "MiniMax-M2.5"
-    provider: str = "anthropic"  # "anthropic" or "openai"
+    provider: Literal["anthropic", "openai"] = "anthropic"  # "anthropic" or "openai"
     retry: RetryConfig = Field(default_factory=RetryConfig)
 
 

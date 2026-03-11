@@ -1,14 +1,21 @@
 """OpenAI LLM client implementation."""
 
+from __future__ import annotations
+
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletion
 
 from ..retry import RetryConfig, async_retry
 from ..schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
+from ..schema.schema import AssistantMessage, SystemMessage, ToolResultMessage, UserMessage
 from .base import LLMClientBase
+
+if TYPE_CHECKING:
+    from ..tools.base import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +55,7 @@ class OpenAIClient(LLMClientBase):
     async def _make_api_request(
         self,
         api_messages: list[dict[str, Any]],
-        tools: list[Any] | None = None,
+        tools: list[Tool] | None = None,
     ) -> Any:
         """Execute API request (core method that can be retried).
 
@@ -73,38 +80,22 @@ class OpenAIClient(LLMClientBase):
             params["tools"] = self._convert_tools(tools)
 
         # Use OpenAI SDK's chat.completions.create
-        response = await self.client.chat.completions.create(**params)
+        response = await self.client.chat.completions.create(**params)  # type: ignore[call-overload]
         # Return full response to access usage info
         return response
 
-    def _convert_tools(self, tools: list[Any]) -> list[dict[str, Any]]:
+    def _convert_tools(self, tools: list[Tool]) -> list[dict[str, Any]]:
         """Convert tools to OpenAI format.
 
         Args:
-            tools: List of Tool objects or dicts
+            tools: List of Tool objects
 
         Returns:
             List of tools in OpenAI dict format
         """
-        result = []
+        result: list[dict[str, Any]] = []
         for tool in tools:
-            if isinstance(tool, dict):
-                # If already a dict, check if it's in OpenAI format
-                if "type" in tool and tool["type"] == "function":
-                    result.append(tool)
-                else:
-                    # Assume it's in Anthropic format, convert to OpenAI
-                    result.append(
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": tool["name"],
-                                "description": tool["description"],
-                                "parameters": tool["input_schema"],
-                            },
-                        }
-                    )
-            elif hasattr(tool, "to_openai_schema"):
+            if hasattr(tool, "to_openai_schema"):
                 # Tool object with to_openai_schema method
                 result.append(tool.to_openai_schema())
             else:
@@ -124,18 +115,18 @@ class OpenAIClient(LLMClientBase):
         api_messages = []
 
         for msg in messages:
-            if msg.role == "system":
+            if isinstance(msg, SystemMessage):
                 # OpenAI includes system message in messages array
                 api_messages.append({"role": "system", "content": msg.content})
                 continue
 
             # For user messages
-            if msg.role == "user":
+            elif isinstance(msg, UserMessage):
                 api_messages.append({"role": "user", "content": msg.content})
 
             # For assistant messages
-            elif msg.role == "assistant":
-                assistant_msg = {"role": "assistant"}
+            elif isinstance(msg, AssistantMessage):
+                assistant_msg: dict[str, Any] = {"role": "assistant"}
 
                 # Add content if present
                 if msg.content:
@@ -143,7 +134,7 @@ class OpenAIClient(LLMClientBase):
 
                 # Add tool calls if present
                 if msg.tool_calls:
-                    tool_calls_list = []
+                    tool_calls_list: list[dict[str, Any]] = []
                     for tool_call in msg.tool_calls:
                         tool_calls_list.append(
                             {
@@ -168,21 +159,20 @@ class OpenAIClient(LLMClientBase):
                 api_messages.append(assistant_msg)
 
             # For tool result messages
-            elif msg.role == "tool":
-                api_messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": msg.tool_call_id,
-                        "content": msg.content,
-                    }
-                )
+            elif isinstance(msg, ToolResultMessage):
+                tool_msg: dict[str, Any] = {
+                    "role": "tool",
+                    "tool_call_id": msg.tool_call_id,
+                    "content": msg.content,
+                }
+                api_messages.append(tool_msg)
 
         return None, api_messages
 
     def _prepare_request(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[Tool] | None = None,
     ) -> dict[str, Any]:
         """Prepare the request for OpenAI API.
 
@@ -200,7 +190,7 @@ class OpenAIClient(LLMClientBase):
             "tools": tools,
         }
 
-    def _parse_response(self, response: Any) -> LLMResponse:
+    def _parse_response(self, response: ChatCompletion) -> LLMResponse:
         """Parse OpenAI response into LLMResponse.
 
         Args:
@@ -227,19 +217,21 @@ class OpenAIClient(LLMClientBase):
         tool_calls = []
         if message.tool_calls:
             for tool_call in message.tool_calls:
-                # Parse arguments from JSON string
-                arguments = json.loads(tool_call.function.arguments)
+                # Handle both function and custom tool calls
+                if hasattr(tool_call, "function") and tool_call.function:
+                    # Parse arguments from JSON string
+                    arguments = json.loads(tool_call.function.arguments)
 
-                tool_calls.append(
-                    ToolCall(
-                        id=tool_call.id,
-                        type="function",
-                        function=FunctionCall(
-                            name=tool_call.function.name,
-                            arguments=arguments,
-                        ),
+                    tool_calls.append(
+                        ToolCall(
+                            id=tool_call.id,
+                            type="function",
+                            function=FunctionCall(
+                                name=tool_call.function.name,
+                                arguments=arguments,
+                            ),
+                        )
                     )
-                )
 
         # Extract token usage from response
         usage = None
@@ -261,7 +253,7 @@ class OpenAIClient(LLMClientBase):
     async def generate(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[Tool] | None = None,
     ) -> LLMResponse:
         """Generate response from OpenAI LLM.
 
