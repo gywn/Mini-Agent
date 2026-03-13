@@ -17,9 +17,13 @@
 .PARAMETER SerperKey
     直接指定 Serper API 密钥（可选，未提供时将提示输入，可跳过）
 
+.PARAMETER FirefoxProfile
+    直接指定 Firefox profile 路径（可选，未提供时将提示输入，可跳过）
+    用于在浏览器中保持登录状态
+
 .EXAMPLE
-    .\setup-explorer-context.ps1 -ApiKey "sk-xxx"
-    # 使用提供的 API 密钥创建上下文菜单
+    .\setup-explorer-context.ps1 -ApiKey "sk-xxx" -FirefoxProfile "C:\Users\xxx\AppData\Roaming\Mozilla\Firefox\Profiles\xxx.default"
+    # 使用提供的 API 密钥和 Firefox profile 创建上下文菜单
 
 .EXAMPLE
     .\setup-explorer-context.ps1 -Remove
@@ -33,7 +37,8 @@
 param(
     [switch]$Remove,
     [string]$ApiKey = "",
-    [string]$SerperKey = ""
+    [string]$SerperKey = "",
+    [string]$FirefoxProfile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -66,7 +71,7 @@ function Test-DockerImageExists {
 # 支持：API密钥、文件路径等
 function Get-OrPromptValue {
     param(
-        [string]$ValueName,           # 显示名称（如 "API Key"）
+        [string]$ValueName,           # 显示名称（如 "API Key"、"Firefox Profile"）
         [string]$PromptValue,         # 命令行参数提供的值
         [bool]$Required = $false       # 是否必需
     )
@@ -179,6 +184,7 @@ function Invoke-Installation {
 
     $miniMaxKey = Get-OrPromptValue -ValueName "MiniMax API 密钥" -PromptValue $ApiKey -Required $true
     $serperKey = Get-OrPromptValue -ValueName "Serper API 密钥（可选）" -PromptValue $SerperKey -Required $false
+    $firefoxProfile = Get-OrPromptValue -ValueName "Firefox Profile" -PromptValue $FirefoxProfile -Required $false
 
     # 创建上下文菜单项
     Write-Info "`n=== 创建上下文菜单项 ==="
@@ -192,6 +198,10 @@ function Invoke-Installation {
     # 构建卷参数
     $folderShellVolums = "-v '%1:/project'"
     $folderBgShellVolums = "-v '%V:/project'"
+    if ($firefoxProfile) {
+        $folderShellVolums = $folderShellVolums + " -v '${firefoxProfile}:/firefox_profile'"
+        $folderBgShellVolums = $folderBgShellVolums + " -v '${firefoxProfile}:/firefox_profile'"
+    }
 
     # 在文件夹上右键
     New-ContextMenuEntry -Path $FolderShellPath -Command "powershell.exe -Command `"docker run -it --rm $folderShellVolums $envVars mini-agent`""
