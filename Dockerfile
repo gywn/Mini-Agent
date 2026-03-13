@@ -51,9 +51,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl -L "https://github.com/lexiforest/curl-impersonate/releases/download/v1.5.1/curl-impersonate-v1.5.1.x86_64-linux-gnu.tar.gz" -o /tmp/curl-impersonate.tar.gz && \
     mkdir /tmp/curl-impersonate && \
     tar -xzf /tmp/curl-impersonate.tar.gz -C /tmp/curl-impersonate && \
-    cp /tmp/curl-impersonate/* /usr/local/bin/ && \
-    ln -s /usr/local/bin/curl_firefox147 /usr/local/bin/curl && \
+    cp /tmp/curl-impersonate/curl-impersonate /usr/local/bin/ && \
     rm -rf /tmp/curl-impersonate* && \
+    echo "#!/usr/bin/env bash\ndir=\${0%/*}\n\"\$dir/curl-impersonate\" --compressed --impersonate \"firefox147\" --doh-url \"https://cloudflare-dns.com/dns-query\" \"\$@\"" > /usr/local/bin/curl && \
+    chmod +x /usr/local/bin/curl && \
     # 安装 Python 依赖 \
     python3 -m pip install --no-cache-dir \
         anthropic>=0.39.0 \
