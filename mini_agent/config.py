@@ -3,6 +3,7 @@
 Provides unified configuration loading and management functionality
 """
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -149,7 +150,10 @@ class Config(BaseModel):
             raise ValueError("Configuration file missing required field: api_key")
 
         if not data["api_key"] or data["api_key"] == "YOUR_API_KEY_HERE":
-            raise ValueError("Please configure a valid API Key")
+            if api_key := os.environ.get("MINIMAX_API_KEY", ""):
+                data["api_key"] = api_key
+            else:
+                raise ValueError("Please configure a valid API Key")
 
         # Parse retry configuration
         retry_data = data.get("retry", {})
