@@ -22,6 +22,7 @@ dependencies = [
     "anthropic>=0.39.0",
     "openai>=1.57.4",
     "html2text>=2024.1.0",
+    "curl_cffi>=0.6.0",
 ]
 
 [project.scripts]

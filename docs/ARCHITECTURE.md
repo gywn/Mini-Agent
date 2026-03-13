@@ -104,7 +104,7 @@ mini_agent/                          # Main package
 | **`tools/file_tools.py`** | File operation tools: <br>• `ReadTool` (`read_file`) - Read files with line numbers, offset/limit support, token truncation <br>• `WriteTool` (`write_file`) - Write files, auto-create directories <br>• `EditTool` (`edit_file`) - String replacement (old_str → new_str) <br><br>Helper: `truncate_text_by_tokens()` for large file handling. |
 | **`tools/bash_tool.py`** | Shell command execution: <br>• `BashTool` (`bash`) - Execute commands, supports foreground/background modes, cross-platform (bash/PowerShell) <br>• `BashOutputTool` (`bash_output`) - Monitor background process output <br>• `BashKillTool` (`bash_kill`) - Terminate background processes <br><br>Helper classes: `BackgroundShell`, `BackgroundShellManager`, `BashOutputResult` |
 | **`tools/note_tool.py`** | Persistent memory tools: <br>• `SessionNoteTool` (`record_note`) - Record notes to JSON file <br>• `RecallNoteTool` (`recall_notes`) - Retrieve recorded notes <br><br>Storage: `.agent_memory.json` in workspace. |
-| **`tools/html_tool.py`** | `HtmlTool` (`fetch_html`) - Fetch and extract text from web pages. |
+| **`tools/html_tool.py`** | `HtmlTool` (`fetch_html`) - Fetch and extract text from web pages. Supports Firefox cookie authentication via `--firefox-profile` CLI option. |
 | **`tools/serper_tool.py`** | `SerperTool` - Google search via Serper API. |
 | **`tools/mcp_loader.py`** | MCP (Model Context Protocol) integration: <br>• `MCPTool` - Wrapper for MCP server tools with timeout <br>• `MCPServerConnection` - Manages connection to MCP server (supports stdio, sse, http, streamable_http) <br>• `load_mcp_tools_async()` - Load tools from MCP config file <br>• `cleanup_mcp_connections()` - Cleanup on exit |
 | **`tools/skill_loader.py`** | Claude Skills loader: <br>• `Skill` - Dataclass for skill data (name, description, content) <br>• `SkillLoader` - Discovers and loads skills from SKILL.md files, processes relative paths to absolute paths |
@@ -299,6 +299,8 @@ The Mini Agent includes Docker support for containerized execution, providing an
 The `Dockerfile` is based on **Debian 13 (trixie) slim**.
 
 The Dockerfile declares a volume at `/project`. At runtime, mount the host's current working directory (or any project directory) to this location to enable file operations and tool execution within the container.
+
+The Dockerfile also declares a volume at `/firefox_profile`. Mount the host's Firefox profile directory here to enable cookie-based authentication for web requests.
 
 Environment variables can be passed to the container to configure the agent:
 

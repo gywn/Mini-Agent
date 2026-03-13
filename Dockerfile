@@ -37,17 +37,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     grep \
     jq \
+    # curl-impersonate 所需的 Firefox 的 TLS 库 \
+    libnss3 \
+    nss-plugin-pem \
     python3-pip \
     python3 \
     rsync \
+    sqlite3 \
     tree && \
     rm -rf /var/lib/apt/lists/* && \
     ln -sf /usr/bin/batcat /usr/local/bin/bat && \
+    # 下载并安装 curl-impersonate \
+    curl -L "https://github.com/lexiforest/curl-impersonate/releases/download/v1.5.1/curl-impersonate-v1.5.1.x86_64-linux-gnu.tar.gz" -o /tmp/curl-impersonate.tar.gz && \
+    mkdir /tmp/curl-impersonate && \
+    tar -xzf /tmp/curl-impersonate.tar.gz -C /tmp/curl-impersonate && \
+    cp /tmp/curl-impersonate/* /usr/local/bin/ && \
+    ln -s /usr/local/bin/curl_firefox147 /usr/local/bin/curl && \
+    rm -rf /tmp/curl-impersonate* && \
     # 安装 Python 依赖 \
     python3 -m pip install --no-cache-dir \
         anthropic>=0.39.0 \
         ast-grep-cli \
         black \
+        curl_cffi>=0.6.0 \
         httpx>=0.27.0 \
         isort \
         mcp>=1.0.0 \
@@ -80,5 +92,8 @@ RUN git -C /tmp/repo submodule update && \
 # 运行时我们将把宿主机的当前目录挂载到这里
 VOLUME /project
 
+# 运行时将宿主机的 Firefox profile 目录挂载到这里
+VOLUME /firefox_profile
+
 # 默认进入安装好的程序，方便交互
-CMD ["/usr/local/bin/mini-agent", "--workspace=/project"]
+CMD ["/usr/local/bin/mini-agent", "--workspace=/project", "--firefox-profile=/firefox_profile"]

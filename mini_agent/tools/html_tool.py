@@ -2,10 +2,12 @@
 
 This tool helps the Agent by:
 - Downloading HTML from the Internet (no images/video)
+- Using curl_cffi for browser simulation (Firefox TLS fingerprint)
 - Using html2text to extract textual content
 - Converting HTML to Markdown format for better readability
 - Being robust against malformed HTML
 - Providing clean text content to avoid waste tokens
+- Using Firefox cookies for authenticated requests (when profile provided)
 
 Usage:
     The agent can use this tool to fetch the text content of any web page.
@@ -21,6 +23,9 @@ Configuration:
         max_length: 40000  # Maximum length of extracted text in characters
     ```
 
+    Or via CLI:
+        mini-agent --firefox-profile /path/to/profile
+
 Tool Name (for LLM):
     - name: "fetch_html"
     - The agent calls this tool using fetch_html(url="...")
@@ -35,12 +40,15 @@ Example:
 import html
 import html.parser
 import re
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import curl_cffi
+import curl_cffi.requests.exceptions as curl_exceptions
 import html2text
-import requests
 
+from ..utils import read_firefox_cookies
 from .base import Tool, ToolResult
 
 
@@ -115,19 +123,21 @@ class HtmlTool(Tool):
     def __init__(
         self,
         timeout: int = 30,
-        user_agent: str = "Mini-Agent/1.0 (HTML Text Extractor)",
         max_length: int = 40000,
+        firefox_profile: Path | None = None,
     ):
         """Initialize HTML tool.
 
         Args:
             timeout: Request timeout in seconds
-            user_agent: User agent string for HTTP requests
             max_length: Maximum length of extracted text in characters.
+            firefox_profile: Optional path to Firefox profile directory for cookie support.
         """
         self._timeout = timeout
-        self._user_agent = user_agent
         self._max_length = max_length
+        self._firefox_profile = firefox_profile.expanduser().absolute() if firefox_profile is not None else None
+        self._session: curl_cffi.Session | None = None
+
         self._html2text = html2text.HTML2Text()
         self._html2text.ignore_links = False  # Include links in output
         self._html2text.inline_links = False  # Use reference-style links [text][1] instead of inline [text](url)
@@ -163,16 +173,35 @@ class HtmlTool(Tool):
             "required": ["url"],
         }
 
+    def _get_session(self) -> curl_cffi.Session:
+        """Get or create a persistent curl_cffi session with cookies.
+
+        Note: curl_cffi uses BoringSSL with embedded TLS fingerprints to impersonate
+        browsers. It does NOT require libnss3 or the curl-impersonate binary.
+        The impersonation works by crafting TLS Client Hello messages that exactly
+        match Firefox's format (cipher suites, extensions, session IDs, etc.).
+        """
+        if self._session is None:
+            # Create new session with Firefox impersonation
+            self._session = curl_cffi.Session(impersonate="firefox")
+            # Load cookies from Firefox profile if configured
+            if self._firefox_profile and (self._firefox_profile / "cookies.sqlite").is_file():
+                self._session.cookies = read_firefox_cookies(self._firefox_profile)
+
+        return self._session
+
     def _fetch_page(self, url: str) -> tuple[str, str, str]:
         """Fetch and parse HTML page."""
-        try:
-            headers = {
-                "User-Agent": self._user_agent,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-            }
+        # Get persistent session with cookies
+        session = self._get_session()
 
-            response = requests.get(url, headers=headers, timeout=self._timeout, allow_redirects=True)
+        try:
+            # Only accept HTML content types since HtmlTool uses html2text
+            # This prevents servers from returning JSON or other unexpected types
+            headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
+            }
+            response = session.get(url, headers=headers, timeout=self._timeout, allow_redirects=True)
 
             if response.status_code == 200:
                 html_content = response.content
@@ -191,11 +220,13 @@ class HtmlTool(Tool):
             else:
                 return "", "", f"HTTP error {response.status_code}: {url}"
 
-        except requests.exceptions.Timeout:
+        except curl_exceptions.Timeout:
             return "", "", f"Request timed out after {self._timeout} seconds: {url}"
-        except requests.exceptions.ConnectionError as e:
+        except curl_exceptions.ConnectionError as e:
             return "", "", f"Connection error: {url}. Error: {str(e)}"
-        except requests.exceptions.RequestException as e:
+        except curl_exceptions.HTTPError as e:
+            return "", "", f"HTTP error: {str(e)}"
+        except curl_exceptions.RequestException as e:
             return "", "", f"Request error: {str(e)}"
         except Exception as e:
             return "", "", f"Unexpected error: {str(e)}"
