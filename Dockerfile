@@ -30,10 +30,12 @@ Components: main contrib
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
 
-# 安装必要工具：python3、pip、grep、curl、bat
+# 安装必要工具：python3、pip、grep、curl、bat、ELF分析工具
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bat \
+    binutils \
     curl \
+    file \
     git \
     grep \
     jq \
