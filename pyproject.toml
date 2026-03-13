@@ -23,6 +23,7 @@ dependencies = [
     "openai>=1.57.4",
     "html2text>=2024.1.0",
     "w3lib>=2.1.0",
+    "curl_cffi>=0.6.0",
 ]
 
 [project.scripts]

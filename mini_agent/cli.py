@@ -435,6 +435,12 @@ Examples:
         action="version",
         version="mini-agent 0.1.0",
     )
+    parser.add_argument(
+        "--firefox-profile",
+        type=Path,
+        default=None,
+        help="Firefox profile directory path. When provided, HTML tool will use cookies from this profile.",
+    )
 
     # Subcommands
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -451,7 +457,7 @@ Examples:
     return parser.parse_args()
 
 
-async def initialize_base_tools(config: Config) -> tuple[list[Tool], Any]:
+async def initialize_base_tools(config: Config, firefox_profile: Path | None = None) -> tuple[list[Tool], Any]:
     """Initialize base tools (independent of workspace)
 
     These tools are loaded from package configuration and don't depend on workspace.
@@ -459,6 +465,7 @@ async def initialize_base_tools(config: Config) -> tuple[list[Tool], Any]:
 
     Args:
         config: Configuration object
+        firefox_profile: Optional path to Firefox profile directory for cookie-based authentication in HTML tool.
 
     Returns:
         Tuple of (list of tools, skill loader if skills enabled)
@@ -561,8 +568,11 @@ async def initialize_base_tools(config: Config) -> tuple[list[Tool], Any]:
     # 6. HTML fetching tool
     if config.tools.enable_html:
         html_config = config.tools.html
-        tools.append(HtmlTool(max_tokens=html_config.max_tokens))
-        print(f"{Colors.GREEN}✅ Loaded HTML fetching tool{Colors.RESET}")
+        tools.append(HtmlTool(max_tokens=html_config.max_tokens, firefox_profile=firefox_profile))
+        if firefox_profile:
+            print(f"{Colors.GREEN}✅ Loaded HTML fetching tool (Firefox cookies: {firefox_profile}){Colors.RESET}")
+        else:
+            print(f"{Colors.GREEN}✅ Loaded HTML fetching tool{Colors.RESET}")
 
     return tools, skill_loader
 
@@ -619,12 +629,13 @@ async def _quiet_cleanup() -> None:
         pass
 
 
-async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
+async def run_agent(workspace_dir: Path, task: str | None = None, firefox_profile: Path | None = None) -> None:
     """Run Agent in interactive or non-interactive mode.
 
     Args:
         workspace_dir: Workspace directory path
         task: If provided, execute this task and exit (non-interactive mode)
+        firefox_profile: Optional path to Firefox profile directory for cookie-based authentication in HTML tool.
     """
     session_start = datetime.now()
 
@@ -706,7 +717,7 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
         print(f"{Colors.GREEN}✅ LLM retry mechanism enabled (max {config.llm.retry.max_retries} retries){Colors.RESET}")
 
     # 3. Initialize base tools (independent of workspace)
-    tools, skill_loader = await initialize_base_tools(config)
+    tools, skill_loader = await initialize_base_tools(config, firefox_profile)
 
     # 4. Add workspace-dependent tools
     add_workspace_tools(tools, config, workspace_dir)
@@ -1020,7 +1031,7 @@ def main() -> None:
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     # Run the agent (config always loaded from package directory)
-    asyncio.run(run_agent(workspace_dir, task=args.task))
+    asyncio.run(run_agent(workspace_dir, task=args.task, firefox_profile=args.firefox_profile))
 
 
 if __name__ == "__main__":
