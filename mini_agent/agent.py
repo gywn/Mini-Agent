@@ -13,7 +13,7 @@ from .logger import AgentLogger
 from .schema import Message
 from .schema.schema import AssistantMessage, SystemMessage, ToolResultMessage, UserMessage
 from .tools.base import Tool, ToolResult
-from .utils import calculate_display_width
+from .utils import format_markdown_with_bat
 
 
 # ANSI color codes
@@ -182,6 +182,8 @@ class Agent:
         for i, user_idx in enumerate(user_indices):
             # Add current user message
             new_messages.append(self.messages[user_idx])
+            print(f"\n{Colors.BOLD}{Colors.BRIGHT_GREEN}🧑 You:{Colors.RESET}")
+            print(self.messages[user_idx].content)
 
             # Determine message range to summarize
             # If last user, go to end of message list; otherwise to before next user
@@ -195,11 +197,13 @@ class Agent:
 
             # If there are execution messages in this round, summarize them
             if execution_messages:
+                print(f"\n{Colors.BOLD}{Colors.BRIGHT_BLUE}🤖 Assistant:{Colors.RESET}")
                 summary_text = await self._create_summary(execution_messages, i + 1)
                 if summary_text:
                     summary_message = UserMessage(content=f"[Assistant Execution Summary]\n\n{summary_text}")
                     new_messages.append(summary_message)
                     summary_count += 1
+                    print(format_markdown_with_bat(summary_text))
 
         # Replace message list
         self.messages = new_messages
@@ -303,16 +307,6 @@ Requirements:
             # Check and summarize message history to prevent context overflow
             await self._summarize_messages()
 
-            # Step header with proper width calculation
-            BOX_WIDTH = 58
-            step_text = f"{Colors.BOLD}{Colors.BRIGHT_CYAN}💭 Step {step + 1}/{self.max_steps}{Colors.RESET}"
-            step_display_width = calculate_display_width(step_text)
-            padding = max(0, BOX_WIDTH - 1 - step_display_width)  # -1 for leading space
-
-            print(f"\n{Colors.DIM}╭{'─' * BOX_WIDTH}╮{Colors.RESET}")
-            print(f"{Colors.DIM}│{Colors.RESET} {step_text}{' ' * padding}{Colors.DIM}│{Colors.RESET}")
-            print(f"{Colors.DIM}╰{'─' * BOX_WIDTH}╯{Colors.RESET}")
-
             # Get tool list for LLM call
             tool_list = list(self.tools.values())
 
@@ -358,16 +352,20 @@ Requirements:
                 print(f"\n{Colors.BOLD}{Colors.MAGENTA}🧠 Thinking:{Colors.RESET}")
                 print(f"{Colors.DIM}{response.thinking}{Colors.RESET}")
 
-            # Print assistant response
+            # Print assistant response with bat Markdown formatting
             if response.content:
                 print(f"\n{Colors.BOLD}{Colors.BRIGHT_BLUE}🤖 Assistant:{Colors.RESET}")
-                print(f"{response.content}")
+                print(format_markdown_with_bat(response.content))
 
             # Check if task is complete (no tool calls)
             if not response.tool_calls:
                 step_elapsed = perf_counter() - step_start_time
                 total_elapsed = perf_counter() - run_start_time
-                print(f"\n{Colors.DIM}⏱️  Step {step + 1} completed in {step_elapsed:.2f}s (total: {total_elapsed:.2f}s){Colors.RESET}")
+                if response.usage:
+                    tokens_info = f" context {response.usage.total_tokens} tokens"
+                else:
+                    tokens_info = ""
+                print(f"\n{Colors.DIM}⏱️  Step {step + 1} completed in {step_elapsed:.2f}s (total: {total_elapsed:.2f}s){tokens_info}{Colors.RESET}")
                 return response.content
 
             # Check for cancellation before executing tools
@@ -458,7 +456,11 @@ Requirements:
 
             step_elapsed = perf_counter() - step_start_time
             total_elapsed = perf_counter() - run_start_time
-            print(f"\n{Colors.DIM}⏱️  Step {step + 1} completed in {step_elapsed:.2f}s (total: {total_elapsed:.2f}s){Colors.RESET}")
+            if response.usage:
+                tokens_info = f" context {response.usage.total_tokens} tokens"
+            else:
+                tokens_info = ""
+            print(f"\n{Colors.DIM}⏱️  Step {step + 1} completed in {step_elapsed:.2f}s (total: {total_elapsed:.2f}s){tokens_info}{Colors.RESET}")
 
             step += 1
 

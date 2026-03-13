@@ -1,10 +1,12 @@
-"""Terminal display utilities for proper text alignment.
+"""Terminal display utilities for proper text alignment and output formatting.
 
 This module provides utilities for calculating visible width of text in terminals,
 handling ANSI escape codes, emoji, and East Asian characters correctly.
+Also includes integration with bat for syntax-highlighted Markdown output.
 """
 
 import re
+import subprocess
 import unicodedata
 
 # Compile regex once at module level for performance
@@ -13,6 +15,42 @@ ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 # Unicode ranges for emoji
 EMOJI_START = 0x1F300
 EMOJI_END = 0x1FAFF
+
+
+def format_markdown_with_bat(content: str) -> str:
+    """Format Markdown content using bat for syntax highlighting.
+
+    This function pipes the content through bat with Markdown syntax highlighting,
+    using plain output style (no line numbers, no decorations) for clean display.
+
+    Args:
+        content: Markdown content to format
+
+    Returns:
+        Formatted content with syntax highlighting, or original content if bat is unavailable
+    """
+    try:
+        # Use bat with:
+        # -l markdown: Force Markdown language
+        # --plain: No line numbers or decorations
+        # --color=always: Force colorization (works in pipe)
+        # --decorations=never: No box drawings
+        result = subprocess.run(
+            ["bat", "-l", "markdown", "--plain", "--color=always", "--decorations=never"],
+            input=content.encode("utf-8"),
+            capture_output=True,
+            timeout=5,
+        )
+
+        if result.returncode == 0:
+            return result.stdout.decode("utf-8")
+        else:
+            # Fallback to original content on error
+            return content
+
+    except (subprocess.TimeoutExpired, OSError):
+        # Fallback to original content on error
+        return content
 
 
 def calculate_display_width(text: str) -> int:
