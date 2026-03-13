@@ -157,7 +157,7 @@ class Agent:
         estimated_tokens = self._estimate_tokens()
 
         # Check both local estimation and API reported tokens
-        should_summarize = estimated_tokens > self.token_limit or self.api_total_tokens > self.token_limit
+        should_summarize = estimated_tokens > self.token_limit and (self.api_total_tokens == 0 or self.api_total_tokens > self.token_limit)
 
         # If neither exceeded, no summary needed
         if not should_summarize:
