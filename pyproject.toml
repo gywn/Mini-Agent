@@ -62,6 +62,12 @@ disable = [
     "arguments-differ",  # Allow subclasses to have different parameter signatures
 ]
 
+[tool.isort]
+line_length = 65535
+
+[tool.black]
+line_length = 65535
+
 [dependency-groups]
 dev = [
     "pytest-asyncio>=1.2.0",

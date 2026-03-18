@@ -181,9 +181,7 @@ def print_banner():
 
     print()
     print(f"{Colors.BOLD}{Colors.BRIGHT_CYAN}╔{'═' * BOX_WIDTH}╗{Colors.RESET}")
-    print(
-        f"{Colors.BOLD}{Colors.BRIGHT_CYAN}║{Colors.RESET}{' ' * left_padding}{banner_text}{' ' * right_padding}{Colors.BOLD}{Colors.BRIGHT_CYAN}║{Colors.RESET}"
-    )
+    print(f"{Colors.BOLD}{Colors.BRIGHT_CYAN}║{Colors.RESET}{' ' * left_padding}{banner_text}{' ' * right_padding}{Colors.BOLD}{Colors.BRIGHT_CYAN}║{Colors.RESET}")
     print(f"{Colors.BOLD}{Colors.BRIGHT_CYAN}╚{'═' * BOX_WIDTH}╝{Colors.RESET}")
     print()
 
@@ -408,10 +406,7 @@ async def initialize_base_tools(config: Config):
                 execute_timeout=mcp_config.execute_timeout,
                 sse_read_timeout=mcp_config.sse_read_timeout,
             )
-            print(
-                f"{Colors.DIM}  MCP timeouts: connect={mcp_config.connect_timeout}s, "
-                f"execute={mcp_config.execute_timeout}s, sse_read={mcp_config.sse_read_timeout}s{Colors.RESET}"
-            )
+            print(f"{Colors.DIM}  MCP timeouts: connect={mcp_config.connect_timeout}s, " f"execute={mcp_config.execute_timeout}s, sse_read={mcp_config.sse_read_timeout}s{Colors.RESET}")
 
             # Use priority search for mcp.json
             mcp_config_path = Config.find_config_file(config.tools.mcp_config_path)
@@ -504,9 +499,7 @@ async def run_agent(workspace_dir: Path, task: str = None):
         print(f"  {Colors.DIM}3) <package>/config/config.yaml{Colors.RESET} (installed)")
         print()
         print(f"{Colors.BRIGHT_YELLOW}🚀 Quick Setup (Recommended):{Colors.RESET}")
-        print(
-            f"  {Colors.BRIGHT_GREEN}curl -fsSL https://raw.githubusercontent.com/MiniMax-AI/Mini-Agent/main/scripts/setup-config.sh | bash{Colors.RESET}"
-        )
+        print(f"  {Colors.BRIGHT_GREEN}curl -fsSL https://raw.githubusercontent.com/MiniMax-AI/Mini-Agent/main/scripts/setup-config.sh | bash{Colors.RESET}")
         print()
         print(f"{Colors.DIM}  This will automatically:{Colors.RESET}")
         print(f"{Colors.DIM}    • Create ~/.mini-agent/config/{Colors.RESET}")
@@ -744,9 +737,7 @@ async def run_agent(workspace_dir: Path, task: str = None):
                 break
 
             # Run Agent with Esc cancellation support
-            print(
-                f"\n{Colors.BRIGHT_BLUE}Agent{Colors.RESET} {Colors.DIM}›{Colors.RESET} {Colors.DIM}Thinking... (Esc to cancel){Colors.RESET}\n"
-            )
+            print(f"\n{Colors.BRIGHT_BLUE}Agent{Colors.RESET} {Colors.DIM}›{Colors.RESET} {Colors.DIM}Thinking... (Esc to cancel){Colors.RESET}\n")
             agent.add_user_message(user_input)
 
             # Create cancellation event

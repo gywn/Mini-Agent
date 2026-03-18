@@ -118,7 +118,7 @@ def async_retry(
                     # Log
                     logger.warning(
                         f"Function {func.__name__} call {attempt + 1} failed: {str(e)}, "
-                        f"retrying attempt {attempt + 2} after {delay:.2f} seconds"
+                        f"retrying attempt {attempt + 2} after {delay:.2f} seconds"  # fmt: skip
                     )
 
                     # Call callback function
