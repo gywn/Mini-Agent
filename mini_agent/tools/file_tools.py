@@ -214,7 +214,7 @@ class EditTool(Tool):
                     error=f"Text not found in file: {old_str}",
                 )
 
-            new_content = content.replace(old_str, new_str)
+            new_content = content.replace(old_str, new_str, count=1)
             file_path.write_text(new_content, encoding="utf-8")
 
             return ToolResult(success=True, content=f"Successfully edited {file_path}")
