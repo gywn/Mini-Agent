@@ -7,6 +7,8 @@ handling ANSI escape codes, emoji, and East Asian characters correctly.
 import re
 import unicodedata
 
+import tiktoken
+
 # Compile regex once at module level for performance
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -68,89 +70,133 @@ def calculate_display_width(text: str) -> int:
     return width
 
 
-def truncate_with_ellipsis(text: str, max_width: int, ellipsis: str = "…") -> str:
-    """Truncate text to fit within max_width, adding ellipsis if needed.
+def truncate_text_by_tokens(
+    text: str,
+    max_tokens: int,
+    offset: int | None = 1,
+    truncation_indicator: str = "[…]",
+) -> str:
+    """Truncate text by token count if it exceeds the limit.
+
+    This function implements a line-wise truncation strategy:
+    - Each line is checked individually against a per-line token limit
+    - Lines that exceed the limit are truncated with a truncation indicator
+    - Line numbers are added to help locate content in the original file
+
+    The algorithm uses binary search to find the optimal tokens-per-line limit
+    that keeps the total output within max_tokens while preserving as much
+    content as possible.
 
     Args:
-        text: Text to truncate (ANSI codes are preserved but not counted)
-        max_width: Maximum visible width in terminal columns
-        ellipsis: Ellipsis character to use (default: "…")
+        text: Text to be truncated (may contain multiple lines)
+        max_tokens: Maximum total tokens allowed in the output (including
+            line numbers and truncation indicators)
+        offset: Starting line number for numbering (default: 1). Useful when
+            reading a file segment, so line numbers reflect original positions.
+        truncation_indicator: String appended to truncated lines to indicate
+            that content was removed (default: "[…]")
 
     Returns:
-        Truncated text with ellipsis if needed
+        str: Formatted text with line numbers. Lines exceeding the computed
+            limit are truncated with the truncation indicator appended.
 
-    Examples:
-        >>> truncate_with_ellipsis("Hello World", 8)
-        'Hello W…'
-        >>> truncate_with_ellipsis("你好世界", 5)
-        '你好…'
+    Example:
+        >>> text = "short\n" + "word " * 100 + "\nshort"
+        >>> result = truncate_text_by_tokens(text, max_tokens=50)
+        >>> print(result)
+             1│short
+             2│word word word […]
+             3│short
     """
-    if max_width <= 0:
-        return ""
+    # Initialize tokenizer (cl100k_base is efficient and commonly used)
+    encoding = tiktoken.get_encoding("cl100k_base")
 
-    current_width = calculate_display_width(text)
+    # Pre-calculate token overhead for line numbers and truncation indicator
+    # This accounts for the fixed-width formatting that will be added to each line
+    # When offset is None, line numbers are omitted entirely
+    tokens_per_line_number = 0 if offset is None else len(encoding.encode(f"{128:6d}│"))
+    tokens_per_indicator = len(encoding.encode(truncation_indicator))
 
-    # No truncation needed
-    if current_width <= max_width:
-        return text
+    # Token cache to avoid re-encoding the same lines during binary search
+    # Each entry is the tokenized form of a line from the input text
+    token_cache: list[list[int]] = []
 
-    # Remove ANSI codes for truncation (we'll lose color, but that's expected)
-    plain_text = ANSI_ESCAPE_RE.sub("", text)
+    def _format_with_limit(max_tokens_per_line: int) -> tuple[int, str]:
+        """Format all lines with the given per-line token limit.
 
-    # If max_width is too small for ellipsis
-    ellipsis_width = calculate_display_width(ellipsis)
-    if max_width <= ellipsis_width:
-        return plain_text[:max_width]
+        This is an inner function used during binary search to test different
+        token limits and find the optimal one.
 
-    # Find truncation point
-    available_width = max_width - ellipsis_width
-    truncated = ""
-    current_width = 0
+        Args:
+            max_tokens_per_line: Maximum tokens allowed for each line (including
+                the line number and truncation indicator overhead)
 
-    for char in plain_text:
-        char_width = calculate_display_width(char)
-        if current_width + char_width > available_width:
-            break
-        truncated += char
-        current_width += char_width
+        Returns:
+            Tuple of (total_tokens, formatted_content)
+        """
+        content = ""
+        for line_idx, line in enumerate(text.splitlines()):
+            # Use cached tokenized line if available, otherwise encode and cache
+            if line_idx < len(token_cache):
+                line_tokens = token_cache[line_idx]
+            else:
+                line_tokens = encoding.encode(line)
+                token_cache.append(line_tokens)
 
-    return truncated + ellipsis
+            # Add line number prefix (e.g., "     1│") when offset is provided
+            # When offset is None, line numbers are omitted entirely (for bash output)
+            if offset is not None:
+                line_number = line_idx + offset
+                content += f"{line_number:6d}│"
 
+            # Check if line fits within the token limit
+            available_tokens = max_tokens_per_line - tokens_per_line_number
+            if len(line_tokens) <= available_tokens:
+                # Line fits completely - add full content
+                content += line
+            else:
+                # Line needs truncation - keep what fits and add indicator
+                truncated_tokens = line_tokens[: max(0, available_tokens - tokens_per_indicator)]
+                content += encoding.decode(truncated_tokens) + truncation_indicator
 
-def pad_to_width(text: str, target_width: int, align: str = "left", fill_char: str = " ") -> str:
-    """Pad text to reach target width with proper alignment.
+            content += "\n"
 
-    Args:
-        text: Text to pad (may contain ANSI codes)
-        target_width: Target width in terminal columns
-        align: Alignment mode - "left", "right", or "center"
-        fill_char: Character to use for padding (default: space)
+        # Return total token count and the formatted content
+        return len(encoding.encode(content)), content
 
-    Returns:
-        Padded text
+    # Binary search to find the optimal max_tokens_per_line
+    #
+    # We start with two bounds:
+    # - lower: 0 tokens per line (everything gets truncated to just the line number and the indicator)
+    # - upper: max_tokens (hopefully everything fits)
+    #
+    # The loop narrows these bounds until we find the upperest per-line limit
+    # that keeps total output within max_tokens.
 
-    Examples:
-        >>> pad_to_width("Hello", 10)
-        'Hello     '
-        >>> pad_to_width("你好", 10)
-        '你好      '
-        >>> pad_to_width("Test", 10, align="center")
-        '   Test   '
-    """
-    current_width = calculate_display_width(text)
+    # First, check if everything fits with the generous upper bound
+    upper_tokens, upper_content = _format_with_limit(upper_n := max_tokens)
+    if upper_tokens <= max_tokens:
+        # Perfect! Everything fits, return as-is
+        return upper_content
 
-    if current_width >= target_width:
-        return text
+    # Check edge case: even with 0 tokens per line, do we exceed?
+    # (This can happen if there are many lines with just line numbers)
+    lower_tokens, lower_content = _format_with_limit(lower_n := 0)
+    if lower_tokens > max_tokens:
+        # Even minimal output exceeds limit - return the most truncated version
+        return lower_content
 
-    padding_needed = target_width - current_width
+    # Binary search: narrow the bounds until they're adjacent
+    while upper_n > lower_n + 1:
+        mid_n = (lower_n + upper_n) // 2
+        mid_tokens, mid_content = _format_with_limit(mid_n)
 
-    if align == "left":
-        return text + (fill_char * padding_needed)
-    elif align == "right":
-        return (fill_char * padding_needed) + text
-    elif align == "center":
-        left_padding = padding_needed // 2
-        right_padding = padding_needed - left_padding
-        return (fill_char * left_padding) + text + (fill_char * right_padding)
-    else:
-        raise ValueError(f"Invalid align value: {align}. Must be 'left', 'right', or 'center'")
+        if mid_tokens > max_tokens:
+            # Still too many tokens - need to reduce per-line limit
+            upper_n, upper_tokens, upper_content = mid_n, mid_tokens, mid_content
+        else:
+            # Fits within limit - try to increase per-line limit
+            lower_n, lower_tokens, lower_content = mid_n, mid_tokens, mid_content
+
+    # Return the best result found (the upperer limit that still fit)
+    return lower_content

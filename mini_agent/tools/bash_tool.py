@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import Field, model_validator
 
+from ..utils import truncate_text_by_tokens
 from .base import Tool, ToolResult
 
 
@@ -45,7 +46,7 @@ class BashOutputResult(ToolResult):
         if not output:
             output = "(no output)"
 
-        self.content = output
+        self.content = truncate_text_by_tokens(output, offset=None, max_tokens=32000)
         return self
 
 
