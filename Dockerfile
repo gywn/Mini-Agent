@@ -34,8 +34,9 @@ Components: main contrib non-free
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
 
-# 安装必要工具：python3、pip、grep、curl
+# 安装必要工具：python3、pip、grep、curl、bat
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    bat \
     curl \
     git \
     grep \
@@ -46,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tree \
     tzdata && \
     rm -rf /var/lib/apt/lists/* && \
+    ln -sf /usr/bin/batcat /usr/local/bin/bat && \
     # 安装 Python 依赖 \
     python3 -m pip install --no-cache-dir \
         anthropic>=0.39.0 \
