@@ -47,7 +47,7 @@ from .tools.mcp_loader import cleanup_mcp_connections, load_mcp_tools_async, set
 from .tools.note_tool import SessionNoteTool
 from .tools.serper_tool import SerperTool
 from .tools.skill_tool import create_skill_tools
-from .utils import calculate_display_width
+from .utils import calculate_display_width, format_markdown_with_bat
 
 
 # ANSI color codes
@@ -287,7 +287,7 @@ def print_message(message: Message | ToolCall | Literal["summarizing", "thinking
         # Print assistant response with bat Markdown formatting
         if message.content:
             print(f"\n{Colors.BOLD}{Colors.BRIGHT_BLUE}🤖 Assistant:{Colors.RESET}")
-            print(f"{message.content.rstrip()}")
+            print(format_markdown_with_bat(message.content.rstrip()))
         if agent.api_total_tokens > 0:
             print(f"\n{Colors.DIM}🪙 Context {agent.api_total_tokens} tokens{Colors.RESET}")
             # Update terminal title
