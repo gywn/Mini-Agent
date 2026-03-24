@@ -37,6 +37,7 @@ class AgentConfig(BaseModel):
     max_steps: int = 50
     workspace_dir: str = "./workspace"
     system_prompt_path: str = "system_prompt.md"
+    editing_mode: Literal["vi", "emacs"] = "emacs"  # "vi" or "emacs" - CLI terminal editing mode
 
 
 class MCPConfig(BaseModel):
@@ -178,6 +179,7 @@ class Config(BaseModel):
             max_steps=data.get("max_steps", 50),
             workspace_dir=data.get("workspace_dir", "./workspace"),
             system_prompt_path=data.get("system_prompt_path", "system_prompt.md"),
+            editing_mode=data.get("editing_mode", "emacs"),
         )
 
         # Parse tools configuration

@@ -27,6 +27,7 @@ from prompt_toolkit import PromptSession, print_formatted_text
 from prompt_toolkit.application import get_app_session
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -210,7 +211,8 @@ def print_help() -> None:
 
 {Colors.BOLD}{Colors.BRIGHT_YELLOW}Keyboard Shortcuts:{Colors.RESET}
   {Colors.BRIGHT_CYAN}Esc{Colors.RESET}        - Cancel current agent execution
-  {Colors.BRIGHT_CYAN}Ctrl+C{Colors.RESET}     - Exit program
+  {Colors.BRIGHT_CYAN}Ctrl+D{Colors.RESET}     - Exit program (EOF)
+  {Colors.BRIGHT_CYAN}Ctrl+C{Colors.RESET}     - Abort input (if text exists) / Exit (if empty)
   {Colors.BRIGHT_CYAN}Ctrl+U{Colors.RESET}     - Clear current input line
   {Colors.BRIGHT_CYAN}Ctrl+L{Colors.RESET}     - Clear screen
   {Colors.BRIGHT_CYAN}Ctrl+J{Colors.RESET}     - Insert newline (also Ctrl+Enter)
@@ -812,15 +814,24 @@ async def run_agent(workspace_dir: Path, task: str | None = None, firefox_profil
         _event.current_buffer.insert_text("\n")
 
     # Create prompt session with history and auto-suggest
-    # Use FileHistory for persistent history across sessions (stored in user's home directory)
-    history_file = Path.home() / ".mini-agent" / ".history"
+    # Use FileHistory for persistent history across sessions
+    # In Docker: stored in workspace directory; otherwise stored in user's home directory
+    if Path("/.dockerenv").exists():
+        history_file = workspace_dir / ".mini-agent" / "history"
+    else:
+        history_file = Path.home() / ".mini-agent" / "history"
     history_file.parent.mkdir(parents=True, exist_ok=True)
+    if config.agent.editing_mode == "vi":
+        editing_mode = EditingMode.VI
+    else:
+        editing_mode = EditingMode.EMACS
     session: PromptSession[Any] = PromptSession(
         history=FileHistory(str(history_file)),
         auto_suggest=AutoSuggestFromHistory(),
         completer=command_completer,
         style=prompt_style,
         key_bindings=kb,
+        editing_mode=editing_mode,
     )
 
     def _is_waiting_for_user_input(messages: list[Message]) -> bool:
@@ -994,7 +1005,19 @@ async def run_agent(workspace_dir: Path, task: str | None = None, firefox_profil
             print(f"\n{Colors.DIM}{'─' * 60}{Colors.RESET}\n")
 
         except KeyboardInterrupt:
-            print(f"\n\n{Colors.BRIGHT_YELLOW}👋 Interrupt signal detected, exiting...{Colors.RESET}\n")
+            if (current_buffer := session.app.current_buffer) and current_buffer.text.strip():
+                # Text exists - abort input but keep text visible and start new prompt
+                current_buffer.reset()
+                continue
+            else:
+                # Empty prompt - exit the program
+                print(f"\n\n{Colors.BRIGHT_YELLOW}👋 Interrupt signal detected, exiting...{Colors.RESET}\n")
+                print_stats(agent, session_start)
+                break
+
+        except EOFError:
+            # Handle Ctrl+D (EOF) - exit gracefully
+            print(f"\n\n{Colors.BRIGHT_YELLOW}👋 EOF received, exiting...{Colors.RESET}\n")
             print_stats(agent, session_start)
             break
 
