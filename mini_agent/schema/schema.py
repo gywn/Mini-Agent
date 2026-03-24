@@ -69,3 +69,10 @@ class LLMResponse(BaseModel):
     tool_calls: list[ToolCall] | None = None
     finish_reason: str
     usage: TokenUsage | None = None  # Token usage from API response
+
+
+class SessionHistory(BaseModel):
+    """Session history for persistence and resumption."""
+
+    tool_schemas: list[dict[str, Any]]  # list of Tool.to_schema()
+    messages: list[Message]

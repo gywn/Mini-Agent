@@ -21,7 +21,8 @@ This document provides a **code-centric reference** for understanding the Mini A
 4. [Data Flow](#data-flow)
 5. [Tool System Details](#tool-system-details)
 6. [LLM Provider Implementation](#llm-provider-implementation)
-7. [Containerization](#containerization)
+7. [Event-Based Architecture](#event-based-architecture)
+8. [Containerization](#containerization)
 
 ---
 
@@ -35,6 +36,7 @@ mini_agent/                          # Main package
 ├── config.py                       # Configuration management
 ├── logger.py                       # Execution logging
 ├── retry.py                        # Retry mechanism
+├── session.py                      # Session persistence & resumption
 │
 ├── llm/                            # LLM client implementations
 │   ├── __init__.py
@@ -81,7 +83,7 @@ mini_agent/                          # Main package
 
 | File | Description |
 |------|-------------|
-| **`agent.py`** | **Main Agent class** - Orchestrates the think→act loop. Key responsibilities: <br>• Maintains message history (`self.messages`) <br>• `run()` - Main execution loop (up to `max_steps`) <br>• Tool execution with error handling <br>• Token management with automatic summarization (`_summarize_messages()`) <br>• Cancellation support via `asyncio.Event` <br>• Logging via `AgentLogger` <br><br>Key classes: `Agent`, `Colors` (ANSI terminal colors) |
+| **`agent.py`** | **Main Agent class** - Orchestrates the think→act loop. Key responsibilities: <br>• Maintains message history (`self.messages`) <br>• `run()` - **Async generator** that yields events (messages, tool calls, tool results, status) <br>• Tool execution with error handling <br>• Token management with automatic summarization (`_summarize_messages()`) <br>• Cancellation support via `asyncio.Event` <br>• Logging via `AgentLogger` <br><br>Key classes: `Agent`, `Colors` (ANSI terminal colors) |
 
 ---
 
@@ -135,6 +137,7 @@ mini_agent/                          # Main package
 |------|-------------|
 | **`config.py`** | Configuration management with Pydantic: <br>• `RetryConfig` - Retry settings (max_retries, delay, exponential backoff) <br>• `LLMConfig` - API key, base URL, model, provider <br>• `AgentConfig` - max_steps, workspace, system_prompt_path <br>• `MCPConfig` - Connection/execution timeouts <br>• `SerperConfig` - Web search settings <br>• `ToolsConfig` - Tool enable/disable flags <br>• `Config` - Main composite config <br><br>Methods: `from_yaml()`, `load()`, `find_config_file()`, `get_default_config_path()` |
 | **`retry.py`** | Retry mechanism: <br>• `RetryConfig` - Configuration class <br>• `RetryExhaustedError` - Exception when retries exhausted <br>• `async_retry()` - Decorator for async functions with exponential backoff |
+| **`session.py`** | Session persistence for resumption with prefix caching: <br>• `get_session_history_dir()` - Get session directory for workspace <br>• `get_new_session_history()` - Generate unique session file path <br>• `load_session_history()` - Load latest session from `.mini-agent/session/` <br>• `save_session_history()` - Save current session to YAML <br><br>Session files: `.mini-agent/session/session_YYYYMMDD_HHMMSS_ffffff_UTC.yaml` |
 
 ---
 
@@ -163,7 +166,8 @@ cli.py (entry point)
     │
     └─► agent.py: Create Agent, call run()
             │
-            ├─► schema/schema.py: Message, LLMResponse
+            ├─► schema/schema.py: Message, LLMResponse, SessionHistory
+            ├─► session.py: Session persistence (load/save)
             ├─► logger.py: Log execution
             ├─► retry.py: LLM call retries
             └─► tools/*: Execute tools via tool.execute()
@@ -184,14 +188,16 @@ cli.py (entry point)
    └─► SessionNoteTool
 5. Load system_prompt.md        → Load agent instructions
 6. Agent()                      → Create agent instance
-7. agent.run()                  → Start execution loop
+   └─► load_session_history()  → Load previous session (if interactive mode)
+7. agent.run()                  → Start async generator execution loop
+   └─► Consume yielded events in CLI event handler
 ```
 
 ---
 
 ## Data Flow
 
-### Agent Execution Loop (in `agent.py::run()`)
+### Agent Execution Loop (in `agent.py::run()`) - Async Generator Pattern
 
 ```
 1. User Input
@@ -204,14 +210,17 @@ cli.py (entry point)
    │
 5. Parse LLMResponse
    │
-   ├─► No tool_calls? → Return response to user (DONE)
+   ├─► yield "thinking" → Notify UI that LLM is thinking
+   ├─► yield AssistantMessage → Return response to caller
+   └─► No tool_calls? → Save session, DONE
    │
 6. For each tool_call:
    │
+   ├─► yield ToolCall → Notify UI of tool invocation
    ├─► tool = self.tools[function_name]
    ├─► result = await tool.execute(**arguments)
-   ├─► Log tool result
-   └─► Append ToolResult to self.messages
+   ├─► yield ToolResultMessage → Return result to caller
+   └─► Append to self.messages → Save session, DONE
    │
 7. Repeat from step 3
 ```
@@ -225,6 +234,9 @@ Agent.run()
 For tool_call in response.tool_calls:
     │
     ▼
+yield ToolCall(name, arguments)  → Notify caller of tool invocation
+    │
+    ▼
 tool = self.tools[function_name]
     │
     ▼
@@ -234,10 +246,13 @@ result = await tool.execute(**arguments)
     └─► Failure: result = ToolResult(success=False, error=...)
     │
     ▼
-tool_msg = Message(role="tool", content=result.content/error)
+yield ToolResultMessage(content/error)  → Return result to caller
     │
     ▼
 self.messages.append(tool_msg)
+    │
+    ▼
+save_session_history()  → Persist session state
 ```
 
 ---
@@ -289,6 +304,24 @@ The Mini Agent supports multiple LLM providers through a unified client interfac
 |----------|-------------|----------|
 | Anthropic | `llm/anthropic_client.py` | Anthropic API |
 | OpenAI | `llm/openai_client.py` | OpenAI API |
+
+---
+
+## Event-Based Architecture
+
+The Mini Agent uses an **async generator pattern** that decouples agent logic from UI rendering. This enables:
+- **UI Agnosticism**: The same event stream can power terminal, web, or custom interfaces
+- **Real-time Updates**: Callers receive events as they happen, not after completion
+- **Session Resumption**: Events enable faithful replay of previous sessions
+
+### Session Persistence and Replay
+
+Sessions are automatically saved to enable resumption with prefix caching:
+
+- **Storage Location**: `.mini-agent/session/session_YYYYMMDD_HHMMSS_ffffff_UTC.yaml`
+- **Saved Data**: Tool schemas + message history
+- **Load Condition**: Interactive mode only, and only if system prompt and tools match
+- **Replay on Resume**: Previous messages are replayed via `print_messages()` before accepting new input
 
 ---
 
