@@ -1,17 +1,19 @@
 """Core Agent implementation."""
 
 import asyncio
-import json
 from pathlib import Path
 from time import perf_counter
-from typing import Optional
+from typing import AsyncGenerator, Literal, Optional
 
 import tiktoken
+from prompt_toolkit.application import get_app_session
+from prompt_toolkit.shortcuts import set_title
 
 from .llm import LLMClient
 from .logger import AgentLogger
 from .schema import Message
-from .schema.schema import AssistantMessage, SystemMessage, ToolResultMessage, UserMessage
+from .schema.schema import AssistantMessage, SystemMessage, ToolCall, ToolResultMessage, UserMessage
+from .session import save_session_history, get_new_session_history, load_session_history
 from .tools.base import Tool, ToolResult
 from .utils import calculate_display_width
 
@@ -54,6 +56,7 @@ class Agent:
         max_steps: int = 50,
         workspace_dir: str = "./workspace",
         token_limit: int = 80000,  # Summary triggered when tokens exceed this value
+        do_load_session_history: bool = False,
     ):
         self.llm = llm_client
         self.tools = {tool.name: tool for tool in tools}
@@ -73,8 +76,19 @@ class Agent:
 
         self.system_prompt = system_prompt
 
-        # Initialize message history
-        self.messages: list[Message] = [SystemMessage(content=system_prompt)]
+        # Initialize message history (from session or fresh)
+        if (
+            do_load_session_history
+            and (session_history := load_session_history(self.workspace_dir)) is not None
+            and self.system_prompt == session_history.messages[0].content
+            and session_history.tool_schemas == [tool.to_schema() for tool in tools]
+        ):  # fmt: skip
+            self.messages = session_history.messages
+        else:
+            self.messages = [SystemMessage(content=system_prompt)]
+
+        # Generate new session history
+        self.session_history = get_new_session_history(self.workspace_dir)
 
         # Initialize logger
         self.logger = AgentLogger()
@@ -136,7 +150,7 @@ class Agent:
             # Rough estimation: average 2.5 characters = 1 token
             return int(sum(len(msg.model_dump_json()) / 2.5 for msg in self.messages))
 
-    async def _summarize_messages(self) -> None:
+    async def _summarize_messages(self) -> AsyncGenerator[Literal["summarizing"], None]:
         """Message history summarization: summarize conversations between user messages when tokens exceed limit
 
         Strategy (Agent mode):
@@ -174,6 +188,8 @@ class Agent:
             print(f"{Colors.BRIGHT_YELLOW}⚠️  Insufficient messages, cannot summarize{Colors.RESET}")
             return
 
+        yield "summarizing"
+
         # Build new message list
         new_messages = [self.messages[0]]  # Keep system prompt
         summary_count = 0
@@ -203,6 +219,7 @@ class Agent:
 
         # Replace message list
         self.messages = new_messages
+        save_session_history(self.session_history, list(self.tools.values()), self.messages)
 
         # Skip next token check to avoid consecutive summary triggers
         # (api_total_tokens will be updated after next LLM call)
@@ -269,16 +286,20 @@ Requirements:
             # Use simple text summary on failure
             return summary_content
 
-    async def run(self, cancel_event: Optional[asyncio.Event] = None) -> str:
+    async def run(self, cancel_event: Optional[asyncio.Event] = None) -> AsyncGenerator[Message | ToolCall | Literal["summarizing", "thinking", "cancelled"] | RuntimeError, None]:
         """Execute agent loop until task is complete or max steps reached.
+
+        This method is an async generator that yields messages as they occur,
+        allowing the caller to handle output formatting. Yields:
+        - AssistantMessage: The LLM's response
+        - ToolCall: A tool invocation request
+        - ToolResultMessage: The result of a tool execution
+        - str: Status messages (completion, errors, cancellation)
 
         Args:
             cancel_event: Optional asyncio.Event that can be set to cancel execution.
                           When set, the agent will stop at the next safe checkpoint
                           (after completing the current step to keep messages consistent).
-
-        Returns:
-            The final response content, or error message (including cancellation message).
         """
         # Set cancellation event (can also be set via self.cancel_event before calling run())
         if cancel_event is not None:
@@ -289,19 +310,17 @@ Requirements:
         print(f"{Colors.DIM}📝 Log file: {self.logger.get_log_file_path()}{Colors.RESET}")
 
         step = 0
-        run_start_time = perf_counter()
 
         while step < self.max_steps:
             # Check for cancellation at start of each step
             if self._check_cancelled():
                 self._cleanup_incomplete_messages()
-                cancel_msg = "Task cancelled by user."
-                print(f"\n{Colors.BRIGHT_YELLOW}⚠️  {cancel_msg}{Colors.RESET}")
-                return cancel_msg
+                yield "cancelled"
+                return
 
-            step_start_time = perf_counter()
             # Check and summarize message history to prevent context overflow
-            await self._summarize_messages()
+            async for message in self._summarize_messages():
+                yield message
 
             # Step header with proper width calculation
             BOX_WIDTH = 58
@@ -319,6 +338,8 @@ Requirements:
             # Log LLM request and call LLM with Tool objects directly
             self.logger.log_request(messages=self.messages, tools=tool_list)
 
+            yield "thinking"
+
             try:
                 response = await self.llm.generate(messages=self.messages, tools=tool_list)
             except Exception as e:
@@ -327,11 +348,10 @@ Requirements:
 
                 if isinstance(e, RetryExhaustedError):
                     error_msg = f"LLM call failed after {e.attempts} retries\nLast error: {str(e.last_exception)}"
-                    print(f"\n{Colors.BRIGHT_RED}❌ Retry failed:{Colors.RESET} {error_msg}")
                 else:
                     error_msg = f"LLM call failed: {str(e)}"
-                    print(f"\n{Colors.BRIGHT_RED}❌ Error:{Colors.RESET} {error_msg}")
-                return error_msg
+                yield RuntimeError(error_msg)
+                return
 
             # Accumulate API reported token usage
             if response.usage:
@@ -353,29 +373,18 @@ Requirements:
             )
             self.messages.append(assistant_msg)
 
-            # Print thinking if present
-            if response.thinking:
-                print(f"\n{Colors.BOLD}{Colors.MAGENTA}🧠 Thinking:{Colors.RESET}")
-                print(f"{Colors.DIM}{response.thinking}{Colors.RESET}")
-
-            # Print assistant response
-            if response.content:
-                print(f"\n{Colors.BOLD}{Colors.BRIGHT_BLUE}🤖 Assistant:{Colors.RESET}")
-                print(f"{response.content}")
+            yield assistant_msg
 
             # Check if task is complete (no tool calls)
             if not response.tool_calls:
-                step_elapsed = perf_counter() - step_start_time
-                total_elapsed = perf_counter() - run_start_time
-                print(f"\n{Colors.DIM}⏱️  Step {step + 1} completed in {step_elapsed:.2f}s (total: {total_elapsed:.2f}s){Colors.RESET}")
-                return response.content
+                save_session_history(self.session_history, list(self.tools.values()), self.messages)
+                return
 
             # Check for cancellation before executing tools
             if self._check_cancelled():
                 self._cleanup_incomplete_messages()
-                cancel_msg = "Task cancelled by user."
-                print(f"\n{Colors.BRIGHT_YELLOW}⚠️  {cancel_msg}{Colors.RESET}")
-                return cancel_msg
+                yield "cancelled"
+                return
 
             # Execute tool calls
             for tool_call in response.tool_calls:
@@ -383,22 +392,7 @@ Requirements:
                 function_name = tool_call.function.name
                 arguments = tool_call.function.arguments
 
-                # Tool call header
-                print(f"\n{Colors.BRIGHT_YELLOW}🔧 Tool Call:{Colors.RESET} {Colors.BOLD}{Colors.CYAN}{function_name}{Colors.RESET}")
-
-                # Arguments (formatted display)
-                print(f"{Colors.DIM}   Arguments:{Colors.RESET}")
-                # Truncate each argument value to avoid overly long output
-                truncated_args = {}
-                for key, value in arguments.items():
-                    value_str = str(value)
-                    if len(value_str) > 200:
-                        truncated_args[key] = value_str[:200] + "..."
-                    else:
-                        truncated_args[key] = value
-                args_json = json.dumps(truncated_args, indent=2, ensure_ascii=False)
-                for line in args_json.split("\n"):
-                    print(f"   {Colors.DIM}{line}{Colors.RESET}")
+                yield tool_call
 
                 # Execute tool
                 if function_name not in self.tools:
@@ -432,15 +426,6 @@ Requirements:
                     result_error=result.error if not result.success else None,
                 )
 
-                # Print result
-                if result.success:
-                    result_text = result.content
-                    if len(result_text) > 300:
-                        result_text = result_text[:300] + f"{Colors.DIM}...{Colors.RESET}"
-                    print(f"{Colors.BRIGHT_GREEN}✓ Result:{Colors.RESET}{"\n" if "\n" in result_text else " "}{result_text}")
-                else:
-                    print(f"{Colors.BRIGHT_RED}✗ Error:{Colors.RESET}{"\n" if result.error and "\n" in result.error else " "}{Colors.RED}{result.error}{Colors.RESET}")
-
                 # Add tool result message
                 tool_msg = ToolResultMessage(
                     content=result.content if result.success else f"Error: {result.error}",
@@ -449,23 +434,21 @@ Requirements:
                 )
                 self.messages.append(tool_msg)
 
+                yield tool_msg
+
                 # Check for cancellation after each tool execution
                 if self._check_cancelled():
                     self._cleanup_incomplete_messages()
-                    cancel_msg = "Task cancelled by user."
-                    print(f"\n{Colors.BRIGHT_YELLOW}⚠️  {cancel_msg}{Colors.RESET}")
-                    return cancel_msg
-
-            step_elapsed = perf_counter() - step_start_time
-            total_elapsed = perf_counter() - run_start_time
-            print(f"\n{Colors.DIM}⏱️  Step {step + 1} completed in {step_elapsed:.2f}s (total: {total_elapsed:.2f}s){Colors.RESET}")
+                    yield "cancelled"
+                    return
 
             step += 1
+            save_session_history(self.session_history, list(self.tools.values()), self.messages)
 
         # Max steps reached
         error_msg = f"Task couldn't be completed after {self.max_steps} steps."
-        print(f"\n{Colors.BRIGHT_YELLOW}⚠️  {error_msg}{Colors.RESET}")
-        return error_msg
+        yield RuntimeError(error_msg)
+        return
 
     def get_history(self) -> list[Message]:
         """Get message history."""

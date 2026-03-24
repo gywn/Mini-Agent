@@ -12,6 +12,8 @@ Examples:
 
 import argparse
 import asyncio
+import contextlib
+import json
 import os
 import platform
 import subprocess
@@ -19,19 +21,24 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from prompt_toolkit import PromptSession
+from prompt_toolkit import PromptSession, print_formatted_text
+from prompt_toolkit.application import get_app_session
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.shortcuts import set_title
 from prompt_toolkit.styles import Style
 
 from . import LLMClient
 from .agent import Agent
 from .config import Config
 from .schema import LLMProvider
+from .schema.schema import AssistantMessage, Message, SystemMessage, ToolCall, ToolResultMessage, UserMessage
+from .session import get_new_session_history
 from .tools.base import Tool
 from .tools.bash_tool import BashKillTool, BashOutputTool, BashTool
 from .tools.file_tools import EditTool, ReadTool, WriteTool
@@ -257,6 +264,114 @@ def print_session_info(agent: Agent, workspace_dir: Path, model: str) -> None:
     print()
     print(f"{Colors.DIM}Type {Colors.BRIGHT_GREEN}/help{Colors.DIM} for help, {Colors.BRIGHT_GREEN}/exit{Colors.DIM} to quit{Colors.RESET}")
     print()
+
+
+def print_message(message: Message | ToolCall | Literal["summarizing", "thinking", "cancelled"] | RuntimeError, agent: Agent, session: PromptSession[Any]) -> None:
+    if isinstance(message, SystemMessage):
+        pass
+    elif isinstance(message, UserMessage):
+        # Use prompt_toolkit's print_formatted_text to match the interactive prompt style
+        text = FormattedText(
+            [
+                ("class:prompt", "You"),
+                ("", " › "),
+                ("", message.content),
+            ]
+        )
+        print_formatted_text(text, style=session.style)
+    elif isinstance(message, AssistantMessage):
+        # Print thinking if present
+        if message.thinking:
+            print(f"\n{Colors.BOLD}{Colors.MAGENTA}🤔 Reasoning:{Colors.RESET}")
+            print(f"{Colors.DIM}{message.thinking.rstrip()}{Colors.RESET}")
+        # Print assistant response with bat Markdown formatting
+        if message.content:
+            print(f"\n{Colors.BOLD}{Colors.BRIGHT_BLUE}🤖 Assistant:{Colors.RESET}")
+            print(f"{message.content.rstrip()}")
+        if agent.api_total_tokens > 0:
+            print(f"\n{Colors.DIM}🪙 Context {agent.api_total_tokens} tokens{Colors.RESET}")
+            # Update terminal title
+            if not message.tool_calls:
+                set_title(f"🪙{agent.api_total_tokens}")
+                get_app_session().output.flush()
+    elif isinstance(message, ToolCall):
+        # Tool call header
+        print(f"\n{Colors.BRIGHT_YELLOW}🚀 Tool Call:{Colors.RESET} {Colors.BOLD}{Colors.CYAN}{message.function.name}{Colors.RESET}")
+        # Arguments (formatted display)
+        print(f"{Colors.DIM}   Arguments:{Colors.RESET}")
+        # Truncate each argument value to avoid overly long output
+        truncated_args = {}
+        for key, value in message.function.arguments.items():
+            value_str = str(value)
+            if len(value_str) > 200:
+                truncated_args[key] = value_str[:200] + "..."
+            else:
+                truncated_args[key] = value
+        args_json = json.dumps(truncated_args, indent=2 if len(truncated_args) > 1 else None, ensure_ascii=False)
+        for line in args_json.split("\n"):
+            print(f"   {Colors.DIM}{line}{Colors.RESET}")
+        # Update terminal title
+        function_name = message.function.name
+        try:
+            argument = next(message.function.arguments.values().__iter__())
+            if not isinstance(argument, str):
+                argument = json.dumps(argument)
+            if " " in argument and (i := argument.index(" ")) < 30:
+                tool_call_desc = f"{function_name} - {argument[:i]}"
+            elif len(argument) > 30:
+                tool_call_desc = f"{function_name} - {argument[:30]}…"
+            else:
+                tool_call_desc = f"{function_name} - {argument}"
+        except StopIteration:
+            tool_call_desc = function_name
+        set_title(f"🚀{tool_call_desc}")
+        get_app_session().output.flush()
+    elif isinstance(message, ToolResultMessage):
+        if not message.content.startswith("Error:"):
+            result_text = message.content
+            if len(result_text) > 300:
+                result_text = result_text[:300] + f"{Colors.DIM}...{Colors.RESET}"
+            result_text = result_text.rstrip()
+            print(f"{Colors.BRIGHT_GREEN}✔️ Result:{Colors.RESET}{"\n" if "\n" in result_text else " "}{result_text}")
+        else:
+            print(f"{Colors.BRIGHT_RED}❌ {Colors.RESET}{Colors.RED}{message.content}{Colors.RESET}")
+    elif message == "summarizing":
+        set_title("📝Summarizing…")
+        get_app_session().output.flush()
+    elif message == "thinking":
+        set_title("🤔Thinking…")
+        get_app_session().output.flush()
+    elif message == "cancelled":
+        print(f"\n{Colors.BRIGHT_YELLOW}⚠️  Task cancelled by user.{Colors.RESET}")
+        set_title("🚫Cancelled")
+        get_app_session().output.flush()
+    elif isinstance(message, str):
+        print(message)
+    elif isinstance(message, RuntimeError):
+        print(message)
+        set_title("❌Error")
+        get_app_session().output.flush()
+
+
+def print_messages(messages: list[Message], agent: Agent, session: PromptSession[Any]) -> None:
+    tool_calls: list[ToolCall] = []
+    for message in messages:
+        if isinstance(message, SystemMessage):
+            pass
+        elif isinstance(message, UserMessage):
+            print_message(message, agent, session)
+        elif isinstance(message, AssistantMessage):
+            print_message(message, agent, session)
+            if not message.tool_calls:
+                tool_calls = []
+                # Visual separation
+                print(f"\n{Colors.DIM}{'─' * 60}{Colors.RESET}\n")
+            else:
+                tool_calls = message.tool_calls
+        elif isinstance(message, ToolResultMessage):
+            with contextlib.suppress(StopIteration):
+                print_message(next(tool_call for tool_call in tool_calls if tool_call.id == message.tool_call_id), agent, session)
+                print_message(message, agent, session)
 
 
 def print_stats(agent: Agent, session_start: datetime) -> None:
@@ -626,9 +741,10 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
         tools=tools,
         max_steps=config.agent.max_steps,
         workspace_dir=str(workspace_dir),
+        do_load_session_history=not task,  # load session history only in interactive mode
     )
 
-    # 8. Display welcome information
+    # 8. Display welcome information (interactive mode)
     if not task:
         print_banner()
         print_session_info(agent, workspace_dir, config.llm.model)
@@ -638,7 +754,8 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
         print(f"\n{Colors.BRIGHT_BLUE}Agent{Colors.RESET} {Colors.DIM}›{Colors.RESET} {Colors.DIM}Executing task...{Colors.RESET}\n")
         agent.add_user_message(task)
         try:
-            await agent.run()
+            async for _message in agent.run():
+                pass
         except Exception as e:
             print(f"\n{Colors.RED}❌ Error: {e}{Colors.RESET}")
         finally:
@@ -660,7 +777,8 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
     prompt_style = Style.from_dict(
         {
             "prompt": "#00ff00 bold",  # Green and bold
-            "separator": "#666666",  # Gray
+            "separator": "dim",
+            "placeholder": "dim",
         }
     )
 
@@ -694,9 +812,19 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
         key_bindings=kb,
     )
 
+    def _is_waiting_for_user_input(messages: list[Message]) -> bool:
+        return isinstance(messages[-1], AssistantMessage) and not messages[-1].tool_calls
+
+    if len(agent.messages) > 1:
+        print_messages(agent.messages, agent, session)
+        if not _is_waiting_for_user_input(agent.messages):
+            # Visual separation
+            print(f"\n{Colors.DIM}{'─' * 60}{Colors.RESET}\n")
+
     # 10. Interactive loop
     while True:
         try:
+            waiting_for_input = _is_waiting_for_user_input(agent.messages)
             # Get user input using prompt_toolkit
             user_input = await session.prompt_async(
                 [
@@ -705,10 +833,11 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
                 ],
                 multiline=False,
                 enable_history_search=True,
+                placeholder=FormattedText([("class:placeholder", "Press ENTER to continue")]) if not waiting_for_input else "",
             )
             user_input = user_input.strip()
 
-            if not user_input:
+            if waiting_for_input and not user_input:
                 continue
 
             # Handle commands
@@ -728,6 +857,8 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
                     # Clear message history but keep system prompt
                     old_count = len(agent.messages)
                     agent.messages = [agent.messages[0]]  # Keep only system message
+                    # Create new session file
+                    agent.session_history = get_new_session_history(workspace_dir)
                     print(f"{Colors.GREEN}✅ Cleared {old_count - 1} messages, starting new session{Colors.RESET}\n")
                     continue
 
@@ -764,7 +895,8 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
 
             # Run Agent with Esc cancellation support
             print(f"\n{Colors.BRIGHT_BLUE}Agent{Colors.RESET} {Colors.DIM}›{Colors.RESET} {Colors.DIM}Thinking... (Esc to cancel){Colors.RESET}\n")
-            agent.add_user_message(user_input)
+            if user_input:
+                agent.add_user_message(user_input)
 
             # Create cancellation event
             cancel_event = asyncio.Event()
@@ -824,7 +956,12 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
 
             # Run agent with periodic cancellation check
             try:
-                agent_task = asyncio.create_task(agent.run())
+
+                async def _run() -> None:
+                    async for message in agent.run():
+                        print_message(message, agent, session)
+
+                agent_task = asyncio.create_task(_run())
 
                 # Poll for cancellation while agent runs
                 while not agent_task.done():
